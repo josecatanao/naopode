@@ -108,6 +108,7 @@
     countdownId: null,
     audio: null,
     syncRoom: null,
+    syncStatus: "idle",
     fiscalConnected: false,
     lastTimerSecond: null
   };
@@ -116,6 +117,7 @@
     endpoint: null,
     state: null,
     timerId: null,
+    requestTimer: null,
     holdTimer: null,
     holdFrame: null,
     holdStart: 0
@@ -537,11 +539,18 @@
       updateFiscalStatus();
       if (connected) sendFiscalState("lobby");
     });
+    game.syncRoom.onStateRequest?.(() => {
+      const status = game.syncStatus === "idle"
+        ? game.currentCard ? "playing" : "lobby"
+        : game.syncStatus;
+      sendFiscalState(status);
+    });
     game.syncRoom.onForbidden(() => {
       if (game.locked || game.paused || !game.currentCard) return;
       showToast("🚨 Fiscal marcou!");
       markCard("forbidden");
     });
+    sendFiscalState("lobby");
   }
 
   function renderRoomLobby() {
@@ -1003,12 +1012,22 @@
     fiscal.endpoint?.disconnect();
     fiscal.endpoint = window.NaoPodeSync?.joinRoom(code);
     fiscal.endpoint?.onStateChange((state) => {
+      clearInterval(fiscal.requestTimer);
       fiscal.state = state;
       renderFiscalMirror();
     });
     fiscal.endpoint?.onConnectionChange(({ connected }) => {
       showToast(connected ? "✅ Fiscal conectado" : "⚠ Host desconectado");
     });
+    clearInterval(fiscal.requestTimer);
+    fiscal.requestTimer = setInterval(() => {
+      if (fiscal.state) {
+        clearInterval(fiscal.requestTimer);
+        return;
+      }
+      fiscal.endpoint?.requestState?.();
+    }, 900);
+    fiscal.endpoint?.requestState?.();
     renderFiscalMirror();
   }
 
@@ -1093,6 +1112,7 @@
 
   function sendFiscalState(status) {
     if (!game.syncRoom) return;
+    game.syncStatus = status;
     const remainingMs = game.paused ? game.pauseRemainingMs : Math.max(0, game.endAt - Date.now());
     game.syncRoom.sendState({
       status,

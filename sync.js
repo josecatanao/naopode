@@ -31,7 +31,8 @@
     return {
       state: new Set(),
       forbidden: new Set(),
-      connection: new Set()
+      connection: new Set(),
+      stateRequest: new Set()
     };
   }
 
@@ -82,6 +83,11 @@
         if (lastState) send("state", { state: lastState });
       }
 
+      if (role === "host" && type === "request-state") {
+        emit(listeners, "stateRequest", payload);
+        if (lastState) send("state", { state: lastState });
+      }
+
       if (role === "fiscal" && type === "host-online") {
         setConnected(true);
       }
@@ -94,6 +100,7 @@
     channel
       .on("broadcast", { event: "host-online" }, ({ payload }) => receive("host-online", payload))
       .on("broadcast", { event: "join" }, ({ payload }) => receive("join", payload))
+      .on("broadcast", { event: "request-state" }, ({ payload }) => receive("request-state", payload))
       .on("broadcast", { event: "state" }, ({ payload }) => receive("state", payload))
       .on("broadcast", { event: "forbidden" }, ({ payload }) => receive("forbidden", payload))
       .on("broadcast", { event: "disconnect" }, ({ payload }) => receive("disconnect", payload))
@@ -133,6 +140,13 @@
       },
       sendForbidden(payload) {
         send("forbidden", { payload });
+      },
+      requestState() {
+        send("request-state");
+      },
+      onStateRequest(listener) {
+        listeners.stateRequest.add(listener);
+        return () => listeners.stateRequest.delete(listener);
       },
       onForbidden(listener) {
         listeners.forbidden.add(listener);
@@ -183,6 +197,11 @@
         if (lastState) post({ type: "state", state: lastState });
       }
 
+      if (role === "host" && message.type === "request-state") {
+        emit(listeners, "stateRequest", message);
+        if (lastState) post({ type: "state", state: lastState });
+      }
+
       if (role === "fiscal" && message.type === "host-online") {
         setConnected(true);
       }
@@ -226,6 +245,13 @@
       },
       sendForbidden(payload) {
         post({ type: "forbidden", payload });
+      },
+      requestState() {
+        post({ type: "request-state" });
+      },
+      onStateRequest(listener) {
+        listeners.stateRequest.add(listener);
+        return () => listeners.stateRequest.delete(listener);
       },
       onForbidden(listener) {
         listeners.forbidden.add(listener);
