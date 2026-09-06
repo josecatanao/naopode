@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#081F4D">
+    <title>Não Pode!</title>
+    <link rel="stylesheet" href="style.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <div class="party-bg" aria-hidden="true">
+        <span></span><span></span><span></span><span></span><span></span>
+      </div>
+      <main id="app" aria-live="polite"></main>
+      <div id="toast" class="toast" role="status" aria-live="assertive"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+    <script src="supabase-config.js"></script>
+    <script src="cards-biblia.js"></script>
+    <script src="cards-variados.js"></script>
+    <script src="sync.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
