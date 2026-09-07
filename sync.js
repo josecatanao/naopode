@@ -88,7 +88,7 @@
         if (lastState) send("state", { state: lastState });
       }
 
-      if (role === "fiscal" && type === "host-online") {
+      if (role !== "host" && type === "host-online") {
         setConnected(true);
       }
 
@@ -107,8 +107,9 @@
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
         const peers = Object.values(state).flat();
-        const wantedRole = role === "host" ? "fiscal" : "host";
-        setConnected(peers.some((peer) => peer.role === wantedRole));
+        setConnected(role === "host"
+          ? peers.some((peer) => peer.role !== "host")
+          : peers.some((peer) => peer.role === "host"));
       })
       .subscribe((status) => {
         if (status !== "SUBSCRIBED") return;
@@ -202,7 +203,7 @@
         if (lastState) post({ type: "state", state: lastState });
       }
 
-      if (role === "fiscal" && message.type === "host-online") {
+      if (role !== "host" && message.type === "host-online") {
         setConnected(true);
       }
 
@@ -280,8 +281,8 @@
     createRoom() {
       return makeEndpoint("host", createRoomCode());
     },
-    joinRoom(code) {
-      return makeEndpoint("fiscal", String(code || "").trim());
+    joinRoom(code, role = "participant") {
+      return makeEndpoint(role, String(code || "").trim());
     }
   };
 })();

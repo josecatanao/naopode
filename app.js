@@ -116,6 +116,9 @@
   const fiscal = {
     endpoint: null,
     state: null,
+    identity: null,
+    view: "idle",
+    renderedCardKey: null,
     timerId: null,
     requestTimer: null,
     holdTimer: null,
@@ -182,6 +185,9 @@
     if (action === "toggle") toggleSetting(value);
     if (action === "copy-room") copyRoomLink();
     if (action === "join-fiscal") joinFiscalFromInput();
+    if (action === "choose-identity") chooseOnlineIdentity(value, control.dataset.team);
+    if (action === "join-spectator") chooseOnlineIdentity("spectator", "spectator");
+    if (action === "change-identity") changeOnlineIdentity();
     if (action === "disable-fiscal") disableFiscalMode();
   }
 
@@ -459,10 +465,10 @@
             </section>
             <section class="setup-block fiscal-setup">
               <div>
-                <h3><span class="setup-icon">📱</span> Fiscal remoto</h3>
-                <p>Um amigo acompanha a carta em outro celular e marca “Não pode!” por QR Code ou link.</p>
+                <h3><span class="setup-icon">📱</span> Partida online</h3>
+                <p>Convide por QR Code ou link para cada pessoa entrar com o proprio celular.</p>
               </div>
-              <button class="switch" role="switch" aria-checked="${game.remoteFiscal}" aria-label="Usar fiscal em outro celular" data-action="toggle" data-value="remoteFiscal"></button>
+              <button class="switch" role="switch" aria-checked="${game.remoteFiscal}" aria-label="Usar partida online" data-action="toggle" data-value="remoteFiscal"></button>
             </section>
           </div>
           <button class="button primary" data-action="start-game">Começar partida</button>
@@ -640,20 +646,38 @@
       <section class="screen room-screen premium-flow-screen">
         ${ambientBackdrop("room-bg")}
         <div class="stack premium-stack">
-          ${topbar("Fiscal", "mode")}
-          <div class="room-card">
-            <span class="room-label">Código da sala</span>
+          ${topbar("Online", "mode")}
+          <div class="room-card online-room-card">
+            <span class="room-label">Partida online</span>
             <strong>${escapeHtml(code)}</strong>
             <div id="room-qr" class="qr-card qr-fallback" aria-label="QR Code para entrar como fiscal">${qrPattern(code)}</div>
             <p class="room-link">${escapeHtml(link)}</p>
             <button class="button white" data-action="copy-room">Copiar convite</button>
-            <div id="fiscal-status" class="connection-status waiting">Esperando fiscal</div>
-            <p class="sync-note">${isSupabase ? "Compartilhe o QR Code ou o link. Quando o fiscal entrar, a sala fica pronta." : "Conexão online ainda não configurada. Você pode começar no host ou ativar a sala online depois."}</p>
+            <div id="fiscal-status" class="connection-status waiting">Esperando participantes</div>
+            <div class="online-teams-preview">
+              ${onlineTeamPreview("blue")}
+              ${onlineTeamPreview("red")}
+            </div>
+            <div class="online-steps">
+              <span>1. Envie o link</span>
+              <span>2. Cada pessoa escolhe o nome</span>
+              <span>3. Comece a rodada</span>
+            </div>
+            <p class="sync-note">${isSupabase ? "Quem entrar pelo link escolhe o proprio nome e ve uma tela adequada ao papel na rodada." : "Conexão online ainda não configurada. Este modo só conecta abas do mesmo navegador ate ativar o Supabase."}</p>
           </div>
           <button class="button primary" data-action="start-after-room">Começar partida</button>
         </div>
       </section>
     `, "forward", false, () => renderQRCode("room-qr", link));
+  }
+
+  function onlineTeamPreview(team) {
+    return `
+      <div class="online-team-preview ${teamMeta[team].className}">
+        <strong>${teamMeta[team].dot} ${escapeHtml(game.teamNames[team])}</strong>
+        <div>${game.players[team].map((player) => `<span>${escapeHtml(player)}</span>`).join("")}</div>
+      </div>
+    `;
   }
 
   function renderPassPhone(direction = "forward") {
@@ -672,7 +696,7 @@
             <p>vai dar as pistas!</p>
             <div class="phone-cue">Passe o celular para ${escapeHtml(player)}</div>
             <div class="privacy">Os outros jogadores não podem olhar a carta.</div>
-            ${game.remoteFiscal ? `<div class="fiscal-cue">Fiscal: <strong>${escapeHtml(fiscalPlayer)}</strong></div>` : ""}
+            ${game.remoteFiscal ? `<div class="fiscal-cue">Fiscal sugerido: <strong>${escapeHtml(fiscalPlayer)}</strong></div>` : ""}
           </div>
           <button class="button primary hero-button" data-action="ready">Estou pronto</button>
         </div>
@@ -740,10 +764,10 @@
           </div>
           ${game.remoteFiscal ? fiscalHostStatus() : ""}
           <div id="card-slot" class="card-wrap">${cardMarkup(game.currentCard)}</div>
-          <div class="bottom-actions">
+          <div class="bottom-actions ${game.remoteFiscal ? "online-actions" : ""}">
             <button class="button white round-button" data-action="skip"><span>⏭</span><strong>Pular</strong></button>
-            <button class="button red round-button" data-action="forbidden"><span>🚫</span><strong>Não pode</strong></button>
             <button class="button green round-button" data-action="correct"><span>✅</span><strong>Acertou</strong></button>
+            ${game.remoteFiscal ? "" : `<button class="button red round-button" data-action="forbidden"><span>🚫</span><strong>Não pode</strong></button>`}
           </div>
         </div>
       </section>
@@ -1070,22 +1094,24 @@
 
   function renderFiscalJoin(code = "") {
     disconnectHostRoom();
+    resetFiscalView();
     setScreen(`
       <section class="screen fiscal-screen">
         ${ambientBackdrop("fiscal-bg")}
         <div class="stack center">
           <div class="panel fiscal-join">
-            <h2>Fiscal da rodada</h2>
-            <p>Digite o código da sala para acompanhar a carta em outro celular.</p>
+            <h2>Entrar na partida</h2>
+            <p>Digite o código da sala ou abra pelo link enviado pelo celular principal.</p>
             <label>Código da sala
               <input id="room-code" inputmode="numeric" maxlength="4" value="${escapeAttr(code)}" autocomplete="off">
             </label>
-            <button class="button primary" data-action="join-fiscal">Entrar como fiscal</button>
-            <p class="sync-note">Você também pode abrir pelo QR Code mostrado no celular principal.</p>
+            <button class="button primary" data-action="join-fiscal">Continuar</button>
+            <p class="sync-note">Depois de conectar, escolha seu nome para receber a tela certa da rodada.</p>
           </div>
         </div>
       </section>
     `, "forward", true);
+    if (code) joinFiscalFromInput();
   }
 
   function joinFiscalFromInput() {
@@ -1095,14 +1121,16 @@
       return;
     }
     fiscal.endpoint?.disconnect();
+    resetFiscalView();
     fiscal.endpoint = window.NaoPodeSync?.joinRoom(code);
     fiscal.endpoint?.onStateChange((state) => {
       clearInterval(fiscal.requestTimer);
       fiscal.state = state;
-      renderFiscalMirror();
+      if (fiscal.identity) renderFiscalMirror();
+      else renderOnlineIdentity();
     });
     fiscal.endpoint?.onConnectionChange(({ connected }) => {
-      showToast(connected ? "✅ Fiscal conectado" : "⚠ Host desconectado");
+      showToast(connected ? "✅ Participante conectado" : "⚠ Host desconectado");
     });
     clearInterval(fiscal.requestTimer);
     fiscal.requestTimer = setInterval(() => {
@@ -1116,44 +1144,226 @@
     renderFiscalMirror();
   }
 
+  function renderOnlineIdentity() {
+    const state = fiscal.state;
+    if (!state) {
+      renderFiscalWaiting();
+      return;
+    }
+
+    const teams = state.players || game.players;
+    const teamNames = state.teamNames || game.teamNames;
+    setScreen(`
+      <section class="screen fiscal-screen online-join-screen">
+        ${ambientBackdrop("join-bg")}
+        <div class="stack premium-stack">
+          <div class="online-join-headline">
+            <span>Sala ${escapeHtml(fiscal.endpoint?.code || state.room || "")}</span>
+            <h2>Quem é você?</h2>
+          </div>
+          <div class="identity-board">
+            ${identityTeam("blue", teamNames.blue, teams.blue || [])}
+            ${identityTeam("red", teamNames.red, teams.red || [])}
+          </div>
+          <button class="button white" data-action="join-spectator">Entrar como espectador</button>
+          <p class="sync-note center-note">Escolha seu nome para o app mostrar carta, placar ou fiscalização conforme sua vez.</p>
+        </div>
+      </section>
+    `, "none", true, () => {
+      fiscal.view = "identity";
+      fiscal.renderedCardKey = null;
+    });
+  }
+
+  function identityTeam(team, name, players) {
+    return `
+      <section class="identity-team ${teamMeta[team].className}">
+        <h3>${teamMeta[team].dot} ${escapeHtml(name || teamMeta[team].label)}</h3>
+        <div>
+          ${players.map((player) => `
+            <button class="identity-player" data-action="choose-identity" data-team="${team}" data-value="${escapeAttr(player)}">
+              <span>${escapeHtml(player.slice(0, 1).toUpperCase())}</span>
+              <strong>${escapeHtml(player)}</strong>
+            </button>
+          `).join("")}
+        </div>
+      </section>
+    `;
+  }
+
+  function chooseOnlineIdentity(name, team) {
+    fiscal.identity = { name, team };
+    fiscal.renderedCardKey = null;
+    showToast(name === "spectator" ? "Entrou como espectador" : `Você é ${name}`);
+    renderFiscalMirror();
+  }
+
+  function changeOnlineIdentity() {
+    fiscal.identity = null;
+    fiscal.renderedCardKey = null;
+    renderOnlineIdentity();
+  }
+
   function renderFiscalMirror() {
     const state = fiscal.state;
     if (!state) {
+      renderFiscalWaiting();
+      return;
+    }
+
+    if (fiscal.view !== "mirror") {
       setScreen(`
-        <section class="screen fiscal-screen">
+        <section class="screen fiscal-screen online-room-screen">
           ${ambientBackdrop("fiscal-bg")}
-          <div class="stack center">
-            <div class="panel fiscal-join">
-              <h2>Conectando...</h2>
-              <p>Aguardando o host enviar a rodada.</p>
-              <div class="connection-status waiting">Sala ${escapeHtml(fiscal.endpoint?.code || "")}</div>
+          <div class="fiscal-layout">
+            <div class="fiscal-top">
+              <span id="participant-role-label">Partida online</span>
+              <strong id="fiscal-player-name"></strong>
+              <small id="fiscal-player-target"></small>
+            </div>
+            <div id="fiscal-timer" class="timer">⏱ ${fiscalTime(state)}</div>
+            <div id="participant-score" class="participant-score"></div>
+            <div id="fiscal-card-slot"></div>
+            <button class="hold-button" data-action="hold-forbidden" data-hold="forbidden">
+              <span class="hold-progress" aria-hidden="true"></span>
+              <strong>Segure se ele falar uma proibida</strong>
+            </button>
+            <div class="participant-actions">
+              <button class="button ghost" data-action="change-identity">Trocar jogador</button>
             </div>
           </div>
         </section>
-      `, "none");
+      `, "none", true, () => {
+        fiscal.view = "mirror";
+        updateFiscalMirrorDom(true);
+      });
+    } else {
+      updateFiscalMirrorDom(false);
+    }
+    startFiscalTimer();
+  }
+
+  function renderFiscalWaiting() {
+    if (fiscal.view === "waiting") {
+      const status = document.querySelector("#fiscal-waiting-status");
+      if (status) status.textContent = `Sala ${fiscal.endpoint?.code || ""}`;
       return;
     }
 
     setScreen(`
       <section class="screen fiscal-screen">
         ${ambientBackdrop("fiscal-bg")}
-        <div class="fiscal-layout">
-          <div class="fiscal-top">
-            <span>Fiscal da rodada</span>
-            <strong>${escapeHtml(state.fiscalPlayer || "Fiscal")}</strong>
-            <small>fiscalizando ${escapeHtml(state.player || "jogador")}</small>
+        <div class="stack center">
+          <div class="panel fiscal-join">
+            <h2>Conectando...</h2>
+            <p>Aguardando o host enviar a rodada.</p>
+            <div id="fiscal-waiting-status" class="connection-status waiting">Sala ${escapeHtml(fiscal.endpoint?.code || "")}</div>
           </div>
-          <div id="fiscal-timer" class="timer ${state.status === "paused" ? "paused" : ""}">⏱ ${fiscalTime(state)}</div>
-          ${state.card ? cardMarkup(state.card, "fiscal-card") : `<div class="pass-card"><h2>${escapeHtml(state.statusLabel || "Aguardando rodada")}</h2></div>`}
-          <button class="hold-button" data-action="hold-forbidden" data-hold="forbidden">
-            <span class="hold-progress" aria-hidden="true"></span>
-            <strong>Segure se ele falar uma proibida</strong>
-          </button>
-          <p class="sync-note">Pressione por meio segundo para evitar toque acidental.</p>
         </div>
       </section>
-    `, "none");
-    startFiscalTimer();
+    `, "none", true, () => {
+      fiscal.view = "waiting";
+      fiscal.renderedCardKey = null;
+    });
+  }
+
+  function updateFiscalMirrorDom(forceCard) {
+    const state = fiscal.state;
+    if (!state) return;
+
+    const name = document.querySelector("#fiscal-player-name");
+    const target = document.querySelector("#fiscal-player-target");
+    const roleLabel = document.querySelector("#participant-role-label");
+    const timer = document.querySelector("#fiscal-timer");
+    const slot = document.querySelector("#fiscal-card-slot");
+    const holdButton = document.querySelector(".hold-button");
+    const score = document.querySelector("#participant-score");
+    const identity = fiscal.identity || { name: "spectator", team: "spectator" };
+    const actorName = state.player || "jogador";
+    const actorTeam = state.team || "blue";
+    const isActor = identity.name !== "spectator" && identity.name === actorName;
+    const isOpponent = identity.team !== "spectator" && identity.team !== actorTeam;
+    const canFlag = isOpponent && state.status === "playing";
+    const teamNames = state.teamNames || game.teamNames;
+    const scores = state.scores || { blue: 0, red: 0 };
+
+    if (roleLabel) roleLabel.textContent = participantRoleLabel(state, identity, isActor, canFlag);
+    if (name) name.textContent = identity.name === "spectator" ? "Espectador" : identity.name;
+    if (target) target.textContent = participantTargetLabel(state, identity, isActor, canFlag);
+    if (timer) {
+      timer.textContent = `⏱ ${fiscalTime(state)}`;
+      timer.classList.toggle("paused", state.status === "paused");
+    }
+    if (score) {
+      score.innerHTML = `
+        <span class="blue">🔵 ${escapeHtml(teamNames.blue || "Time Azul")} <strong>${scores.blue || 0}</strong></span>
+        <span class="red">🔴 ${escapeHtml(teamNames.red || "Time Vermelho")} <strong>${scores.red || 0}</strong></span>
+      `;
+    }
+    if (holdButton) {
+      holdButton.hidden = !isOpponent;
+      holdButton.disabled = !canFlag;
+      holdButton.querySelector("strong").textContent = canFlag
+        ? "Segure se ele falar uma proibida"
+        : "Fiscalização disponível na vez adversária";
+    }
+
+    const visibleCard = isActor ? state.card : null;
+    const cardKey = visibleCard
+      ? `card:${visibleCard.id || visibleCard.palavra}`
+      : `viewer:${state.status}:${actorName}:${state.currentRound || 0}:${state.updatedAt || ""}`;
+    if (slot && (forceCard || fiscal.renderedCardKey !== cardKey)) {
+      slot.innerHTML = visibleCard
+        ? cardMarkup(visibleCard, "fiscal-card")
+        : participantStatusCard(state, identity, isActor, canFlag);
+      fiscal.renderedCardKey = cardKey;
+    }
+  }
+
+  function participantRoleLabel(state, identity, isActor, canFlag) {
+    if (isActor) return "Sua vez";
+    if (canFlag) return "Fiscalize a rodada";
+    if (identity.name === "spectator") return "Acompanhando";
+    if (state.status === "lobby") return "No lobby";
+    return "Sua equipe acompanha";
+  }
+
+  function participantTargetLabel(state, identity, isActor, canFlag) {
+    if (state.status === "lobby") return "aguardando inicio da partida";
+    if (state.status === "pass") return `${state.player || "Jogador"} vai receber a carta`;
+    if (isActor) return "voce ve a carta completa";
+    if (canFlag) return `fiscalizando ${state.player || "jogador"}`;
+    return `vez de ${state.player || "jogador"}`;
+  }
+
+  function participantStatusCard(state, identity, isActor, canFlag) {
+    const status = state.status || "lobby";
+    const teamNames = state.teamNames || game.teamNames;
+    const actorTeamName = teamNames[state.team] || state.teamName || "Time";
+    const roundNumber = Number.isFinite(Number(state.currentRound)) ? Number(state.currentRound) + 1 : 1;
+    const totalRounds = state.rounds || game.rounds;
+    const messages = {
+      lobby: ["Aguardando inicio", "O host ainda esta preparando a primeira rodada."],
+      pass: ["Preparem a rodada", `${state.player || "Jogador"} vai dar as pistas para ${actorTeamName}.`],
+      playing: canFlag
+        ? ["Olho nas proibidas", "Se a pessoa falar uma palavra proibida, segure o botao vermelho."]
+        : ["Rodada em andamento", "Acompanhe o tempo e o placar sem ver a carta."],
+      paused: ["Partida pausada", "A carta fica protegida ate o host continuar."],
+      ended: ["Fim da rodada", "Confira o placar e aguarde a proxima chamada."]
+    };
+    const [title, copy] = messages[status] || messages.lobby;
+
+    return `
+      <article class="participant-card ${status}">
+        <span>Rodada ${roundNumber}/${escapeHtml(totalRounds)}</span>
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(copy)}</p>
+        <div class="participant-turn ${teamMeta[state.team]?.className || ""}">
+          <strong>${teamMeta[state.team]?.dot || "•"} ${escapeHtml(actorTeamName)}</strong>
+          <small>${escapeHtml(state.player || "aguardando jogador")}</small>
+        </div>
+      </article>
+    `;
   }
 
   function startFiscalTimer() {
@@ -1167,7 +1377,7 @@
 
   function startHold(event) {
     const button = event.target.closest("[data-hold='forbidden']");
-    if (!button || !fiscal.endpoint || !fiscal.state || fiscal.state.status !== "playing") return;
+    if (!button || button.disabled || button.hidden || !fiscal.endpoint || !fiscal.state || fiscal.state.status !== "playing") return;
     button.setPointerCapture?.(event.pointerId);
     fiscal.holdStart = Date.now();
     button.classList.add("holding");
@@ -1209,6 +1419,12 @@
       fiscalPlayer: currentFiscalPlayer(),
       team: currentTeam(),
       teamName: game.teamNames[currentTeam()],
+      teamNames: game.teamNames,
+      players: game.players,
+      scores: game.scores,
+      currentRound: game.currentRound,
+      rounds: game.rounds,
+      roundStats: game.roundStats,
       card: status === "playing" || status === "paused" ? game.currentCard : null,
       duration: game.duration,
       startTimestamp: game.endAt - game.duration * 1000,
@@ -1455,6 +1671,18 @@
     game.fiscalConnected = false;
   }
 
+  function resetFiscalView() {
+    clearInterval(fiscal.timerId);
+    clearInterval(fiscal.requestTimer);
+    cancelHold();
+    fiscal.state = null;
+    fiscal.identity = null;
+    fiscal.view = "idle";
+    fiscal.renderedCardKey = null;
+    fiscal.timerId = null;
+    fiscal.requestTimer = null;
+  }
+
   function setRoundButtonsDisabled(disabled) {
     document.querySelectorAll(".round-button").forEach((button) => {
       button.disabled = disabled;
@@ -1464,22 +1692,22 @@
   function updateFiscalStatus() {
     const status = document.querySelector("#fiscal-status");
     if (status) {
-      status.textContent = game.fiscalConnected ? "✅ Fiscal conectado" : "⚠ Fiscal desconectado";
+      status.textContent = game.fiscalConnected ? "✅ Participante conectado" : "⚠ Esperando participantes";
       status.className = `connection-status ${game.fiscalConnected ? "connected" : "waiting"}`;
     }
     const playStatus = document.querySelector("#fiscal-play-status");
     if (playStatus) {
       playStatus.className = `fiscal-play-status ${game.fiscalConnected ? "connected" : "waiting"}`;
       playStatus.innerHTML = game.fiscalConnected
-        ? "✅ Fiscal conectado"
-        : "⚠ Fiscal desconectado <button data-action=\"disable-fiscal\">Continuar sem fiscal</button>";
+        ? "✅ Participante conectado"
+        : "⚠ Sem participantes <button data-action=\"disable-fiscal\">Continuar local</button>";
     }
   }
 
   function fiscalHostStatus() {
     return `
       <div id="fiscal-play-status" class="fiscal-play-status ${game.fiscalConnected ? "connected" : "waiting"}">
-        ${game.fiscalConnected ? "✅ Fiscal conectado" : "⚠ Fiscal desconectado <button data-action=\"disable-fiscal\">Continuar sem fiscal</button>"}
+        ${game.fiscalConnected ? "✅ Participante conectado" : "⚠ Sem participantes <button data-action=\"disable-fiscal\">Continuar local</button>"}
       </div>
     `;
   }
@@ -1489,7 +1717,7 @@
     disconnectHostRoom();
     document.querySelector("#fiscal-play-status")?.remove();
     persistSettings();
-    showToast("Fiscal remoto desligado");
+    showToast("Partida online desligada");
   }
 
   async function copyRoomLink() {
