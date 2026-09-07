@@ -39,6 +39,7 @@ body {
     radial-gradient(circle at 50% 96%, rgba(255, 61, 79, 0.2), transparent 27%),
     linear-gradient(158deg, #071943 0%, #0c2f70 46%, #1677ff 100%);
   overflow-x: hidden;
+  overflow-y: auto;
 }
 
 button,
@@ -109,7 +110,9 @@ h3 {
   display: flex;
   min-height: 100dvh;
   overflow-x: hidden;
+  overflow-y: auto;
   padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  -webkit-overflow-scrolling: touch;
 }
 
 @supports (min-height: 100svh) {
@@ -1042,8 +1045,8 @@ h3 {
 .config-stack,
 .fiscal-screen .stack {
   z-index: 3;
-  height: 100%;
-  min-height: 0;
+  height: auto;
+  min-height: calc(100dvh - 26px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   gap: clamp(10px, 1.55dvh, 16px);
 }
 
@@ -1658,7 +1661,8 @@ select:focus {
 
 .play-screen {
   padding: max(10px, env(safe-area-inset-top)) 12px max(10px, env(safe-area-inset-bottom));
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .play-layout {
@@ -1825,12 +1829,31 @@ select:focus {
 .word {
   position: relative;
   z-index: 1;
-  overflow-wrap: anywhere;
+  max-width: 100%;
+  justify-self: center;
+  overflow-wrap: break-word;
+  word-break: normal;
   color: var(--navy);
-  font-size: clamp(2.15rem, 12vw, 4.2rem);
+  font-size: clamp(2rem, 10vw, 3.8rem);
   font-weight: 1000;
-  line-height: 0.96;
+  line-height: 1;
+  text-wrap: balance;
   text-transform: uppercase;
+}
+
+.word.word-medium {
+  font-size: clamp(1.7rem, 7.8vw, 3.05rem);
+  line-height: 1.04;
+}
+
+.word.word-long {
+  font-size: clamp(1.38rem, 6.2vw, 2.45rem);
+  line-height: 1.08;
+}
+
+.word.word-tiny {
+  font-size: clamp(1.08rem, 5vw, 1.9rem);
+  line-height: 1.12;
 }
 
 .forbidden-title {
@@ -2322,7 +2345,8 @@ select:focus {
   position: relative;
   z-index: 3;
   display: grid;
-  grid-template-rows: auto auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto auto auto auto;
+  align-content: start;
   gap: 12px;
   width: 100%;
   min-height: calc(100dvh - 36px - env(safe-area-inset-bottom));

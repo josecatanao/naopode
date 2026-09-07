@@ -1656,6 +1656,7 @@
     const currentTeamId = state.currentTeamId || state.team || null;
     const currentPlayerId = state.currentPlayerId || getStateParticipantByName(state, state.player, currentTeamId)?.id || null;
     const inspectorId = state.inspectorId || getStateParticipantByName(state, state.fiscalPlayer, oppositeTeam(currentTeamId || "blue"))?.id || null;
+    const round = clampRoundIndex(Number.isFinite(Number(state.round)) ? Number(state.round) : Number(state.currentRound || 0), state.rounds);
     return {
       ...state,
       host: state.host || state.hostId,
@@ -1664,8 +1665,8 @@
       currentTeamId,
       currentPlayerId,
       inspectorId,
-      round: Number.isFinite(Number(state.round)) ? Number(state.round) : Number(state.currentRound || 0),
-      currentRound: Number.isFinite(Number(state.currentRound)) ? Number(state.currentRound) : Number(state.round || 0),
+      round,
+      currentRound: round,
       currentCard: state.currentCard || state.card || null,
       card: state.card || state.currentCard || null,
       roundHits: Number(state.roundHits ?? state.roundStats?.correct ?? 0),
@@ -1678,6 +1679,16 @@
         red: { id: "red", name: state.teamNames?.red || game.teamNames.red, playerNames: state.players?.red || game.players.red }
       }
     };
+  }
+
+  function clampRoundIndex(round, totalRounds = game.rounds) {
+    const total = Math.max(1, Number(totalRounds || game.rounds || 1));
+    const value = Number.isFinite(Number(round)) ? Number(round) : 0;
+    return clamp(Math.trunc(value), 0, total - 1);
+  }
+
+  function roundDisplayNumber(state) {
+    return clampRoundIndex(state?.round ?? state?.currentRound ?? 0, state?.rounds) + 1;
   }
 
   function getStateParticipantByName(state, name, team) {
@@ -1933,7 +1944,7 @@
     const actor = getStateParticipant(state, state.currentPlayerId);
     const actorName = actor?.name || state.player || "Jogador";
     const actorTeamName = teamNames[actorTeam] || state.teamName || "Time";
-    const roundNumber = Number.isFinite(Number(state.round)) ? Number(state.round) + 1 : 1;
+    const roundNumber = roundDisplayNumber(state);
     const totalRounds = state.rounds || game.rounds;
     if (status === "finished") return roundResultCard(state, identity, isActor, isSameTeam);
     if (status === "final") return finalResultCard(state);
@@ -1986,7 +1997,7 @@
 
     return `
       <article class="participant-card finished result-card ${teamMeta[teamId]?.className || ""}">
-        <span>Rodada ${(state.round || 0) + 1}/${escapeHtml(state.rounds || game.rounds)}</span>
+        <span>Rodada ${roundDisplayNumber(state)}/${escapeHtml(state.rounds || game.rounds)}</span>
         <h2>${escapeHtml(title)}</h2>
         <p>${escapeHtml(copy)}</p>
         <div class="summary-grid mini-result-grid">
@@ -2125,6 +2136,22 @@
     if (game.roomState) {
       game.roomState.roundState = status === "ended" ? "finished" : status;
       game.roomState.status = status;
+      if (status === "closed") {
+        clearTimeout(game.roomAdvanceId);
+        clearInterval(game.roomTimerId);
+        game.roomAdvanceId = null;
+        game.roomTimerId = null;
+        game.roomState.round = clampRoundIndex(game.roomState.round, game.roomState.rounds);
+        game.roomState.currentRound = game.roomState.round;
+        game.roomState.remainingTime = 0;
+        game.roomState.currentCard = null;
+        game.roomState.card = null;
+        game.roomState.lastEvent = {
+          id: `closed-${Date.now()}`,
+          kind: "closed",
+          at: Date.now()
+        };
+      }
       sendRoomState();
       return;
     }
@@ -2160,6 +2187,7 @@
   function sendRoomState() {
     if (!game.syncRoom || !game.roomState) return;
     const state = game.roomState;
+    state.round = clampRoundIndex(state.round, state.rounds);
     state.hostId = game.syncRoom.id;
     state.host = game.syncRoom.id;
     state.room = game.syncRoom.code;
@@ -2279,13 +2307,21 @@
   function advanceOnlineRound() {
     if (!game.roomState) return;
     clearTimeout(game.roomAdvanceId);
+    if (game.roomState.roundState !== "finished" && game.roomState.roundState !== "final") {
+      sendRoomState();
+      renderHostOnlineState(true);
+      return;
+    }
     if (game.roomState.roundState === "final") {
       renderHostOnlineState(true);
       return;
     }
-    if (game.roomState.matchFinished) {
+    const nextRound = clampRoundIndex(game.roomState.round + 1, game.roomState.rounds);
+    if (game.roomState.matchFinished || game.roomState.round + 1 >= game.roomState.rounds) {
       game.roomState.roundState = "final";
       game.roomState.status = "final";
+      game.roomState.round = clampRoundIndex(game.roomState.round, game.roomState.rounds);
+      game.roomState.currentRound = game.roomState.round;
       game.roomState.lastEvent = {
         id: `final-${Date.now()}`,
         kind: "final",
@@ -2295,8 +2331,8 @@
       renderHostOnlineState(true);
       return;
     }
-    game.roomState.round += 1;
-    game.roomState.currentRound = game.roomState.round;
+    game.roomState.round = nextRound;
+    game.roomState.currentRound = nextRound;
     beginOnlineRound();
   }
 
@@ -2335,13 +2371,23 @@
       <article class="game-card ${extraClass}">
         <div class="prompt">Faça seu time adivinhar</div>
         <div class="card-emoji" aria-hidden="true">${card.emoji}</div>
-        <h2 class="word">${escapeHtml(card.palavra)}</h2>
+        <h2 class="word ${wordSizeClass(card.palavra)}">${escapeHtml(card.palavra)}</h2>
         <div class="forbidden-title">🚫 Não pode</div>
         <ol class="forbidden-list">
           ${card.proibidas.map((word) => `<li><span>🚫</span>${escapeHtml(word)}</li>`).join("")}
         </ol>
       </article>
     `;
+  }
+
+  function wordSizeClass(word) {
+    const text = String(word || "").trim();
+    const length = Array.from(text).length;
+    const longestWord = text.split(/\s+/).reduce((max, part) => Math.max(max, Array.from(part).length), 0);
+    if (length >= 24 || longestWord >= 16) return "word-tiny";
+    if (length >= 17 || longestWord >= 12) return "word-long";
+    if (length >= 10 || text.includes(" ")) return "word-medium";
+    return "";
   }
 
   function updateMiniScore() {
