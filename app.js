@@ -1896,7 +1896,7 @@
     }
     if (nextButton) nextButton.hidden = !(isHostDevice && state.roundState === "finished");
 
-    const visibleCard = isActor ? state.card : null;
+    const visibleCard = (isActor || isInspector) && state.roundState === "playing" ? state.card : null;
     const cardKey = visibleCard
       ? `card:${visibleCard.id || visibleCard.palavra}`
       : `viewer:${state.roundState}:${actorName}:${state.round || 0}:${state.updatedAt || ""}`;
