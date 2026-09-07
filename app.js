@@ -2087,8 +2087,11 @@
 
   function startHold(event) {
     const button = event.target.closest("[data-hold='forbidden']");
-    const status = fiscal.state?.roundState || fiscal.state?.status;
-    if (!button || button.disabled || button.hidden || !fiscal.endpoint || !fiscal.state || status !== "playing") return;
+    const state = game.roomState || fiscal.state;
+    const status = state?.roundState || state?.status;
+    if (!button || button.disabled || button.hidden || !state || status !== "playing" || fiscal.holdTimer) return;
+    const identity = currentOnlineIdentity();
+    if (!identity || identity.id !== state.inspectorId) return;
     button.setPointerCapture?.(event.pointerId);
     fiscal.holdStart = Date.now();
     button.classList.add("holding");
