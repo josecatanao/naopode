@@ -148,11 +148,12 @@
     const action = control.dataset.action;
     const value = control.dataset.value;
 
-    if (!["correct", "forbidden", "skip", "hold-forbidden"].includes(action)) feedback("tap");
+    if (!["correct", "forbidden", "skip", "hold-forbidden", "pick-mode"].includes(action)) feedback("tap");
 
     if (action === "home") guardedHome();
     if (action === "how") renderHow();
     if (action === "settings") renderSettings();
+    if (action === "play-now") playHomeIntro(control);
     if (action === "mode") renderModeChoice();
     if (action === "pick-mode") selectMode(value, control);
     if (action === "set-time") setTime(Number(value));
@@ -232,43 +233,92 @@
     disconnectHostRoom();
     setScreen(`
       <section class="screen home">
-        ${decorations()}
+        <div class="home-visual-bg" aria-hidden="true">
+          <span class="light-arc arc-one"></span>
+          <span class="light-arc arc-two"></span>
+          <span class="light-arc arc-three"></span>
+          <span class="bg-card bg-card-talk"><b>FALAR</b></span>
+          <span class="bg-card bg-card-gesture"><b>GESTOS</b></span>
+          <span class="bg-card bg-card-mime"><b>MÍMICA</b></span>
+          <span class="bg-card bg-card-draw"><b>DESENHAR</b></span>
+          <span class="bg-card bg-card-forbid"><b>NÃO<br>PODE!</b></span>
+          <span class="party-chip chip-a"></span>
+          <span class="party-chip chip-b"></span>
+          <span class="party-chip chip-c"></span>
+          <span class="party-chip chip-d"></span>
+          <span class="sparkle sparkle-a"></span>
+          <span class="sparkle sparkle-b"></span>
+          <span class="sparkle sparkle-c"></span>
+        </div>
         <div class="home-stage">
-          <div class="logo-lockup">
-            <div class="logo-symbol" aria-hidden="true">🚫</div>
-            <h1>Não<br>Pode!</h1>
-            <p class="subtitle">O jogo de palavras proibidas!</p>
+          <div class="home-logo-lockup">
+            <div class="home-symbol-card" aria-hidden="true">
+              <span class="ban-mark"></span>
+            </div>
+            <h1 class="home-title" aria-label="Não Pode!">
+              <span class="home-title-no" aria-hidden="true">
+                <span>N</span><span class="title-a">A<i>~</i></span><span>O</span>
+              </span>
+              <span class="home-title-pode">Pode!</span>
+            </h1>
+            <p class="home-subtitle">O jogo de palavras proibidas!</p>
           </div>
-          <button class="button primary hero-button" data-action="mode">
-            <span>▶</span>
+          <button class="home-play-button" data-action="play-now" aria-label="Jogar agora">
+            <img src="assets/home/icon-play-button.png" alt="">
             <strong>Jogar agora</strong>
-            <i aria-hidden="true"></i>
           </button>
-          <div class="deck-stats" aria-label="Baralhos disponiveis">
-            <div><span>📖</span><b>150+</b><small>cartas biblicas</small></div>
-            <div><span>🌎</span><b>150+</b><small>cartas variadas</small></div>
+          <div class="home-secondary-actions">
+            <button class="home-secondary-button" data-action="how">
+              <img src="assets/home/icon-books-premium.png" alt="">
+              <strong>Como jogar</strong>
+            </button>
+            <button class="home-secondary-button" data-action="settings">
+              <img src="assets/home/icon-gear-premium.png" alt="">
+              <strong>Configurações</strong>
+            </button>
           </div>
-          <div class="actions two">
-            <button class="button ghost" data-action="how">📚 Como jogar</button>
-            <button class="button ghost" data-action="settings">⚙️ Configurações</button>
-          </div>
+          <p class="home-invite">Reúna seus amigos<br>e teste seus limites!</p>
         </div>
       </section>
     `, direction, immediate);
   }
 
+  function playHomeIntro(control) {
+    const home = control.closest(".home");
+    if (!home || home.classList.contains("launching")) return;
+    home.classList.add("launching");
+    feedback("correct");
+    burstConfetti(18);
+    setTimeout(() => renderModeChoice("forward"), motionDelay(640));
+  }
+
+  function ambientBackdrop(extraClass = "") {
+    return `
+      <div class="flow-visual-bg ${extraClass}" aria-hidden="true">
+        <span class="light-arc flow-arc-one"></span>
+        <span class="light-arc flow-arc-two"></span>
+        <span class="party-chip flow-chip-a"></span>
+        <span class="party-chip flow-chip-b"></span>
+        <span class="party-chip flow-chip-c"></span>
+        <span class="sparkle flow-sparkle-a"></span>
+        <span class="sparkle flow-sparkle-b"></span>
+      </div>
+    `;
+  }
+
   function renderHow() {
     setScreen(`
-      <section class="screen">
-        <div class="stack">
+      <section class="screen info-screen premium-flow-screen">
+        ${ambientBackdrop("info-bg")}
+        <div class="stack premium-stack">
           ${topbar("Como jogar", "home")}
           <div class="panel summary-grid rules-panel">
-            <div class="stat"><span>Veja a palavra principal</span><b>👀</b></div>
-            <div class="stat"><span>Dê pistas para sua equipe</span><b>💬</b></div>
-            <div class="stat"><span>Não fale as 5 proibidas</span><b>🚫</b></div>
-            <div class="stat"><span>Acumule pontos antes do tempo acabar</span><b>⏱️</b></div>
+            <div class="stat"><span>Veja a palavra principal</span><b>1</b></div>
+            <div class="stat"><span>Dê pistas para sua equipe</span><b>2</b></div>
+            <div class="stat"><span>Não fale as 5 proibidas</span><b>3</b></div>
+            <div class="stat"><span>Some pontos antes do tempo acabar</span><b>4</b></div>
           </div>
-          <button class="button primary" data-action="mode">▶ Jogar agora</button>
+          <button class="button primary" data-action="mode">Jogar agora</button>
         </div>
       </section>
     `);
@@ -276,15 +326,16 @@
 
   function renderSettings() {
     setScreen(`
-      <section class="screen">
-        <div class="stack">
+      <section class="screen settings-screen premium-flow-screen">
+        ${ambientBackdrop("settings-bg")}
+        <div class="stack premium-stack">
           ${topbar("Configurações", "home")}
           <div class="panel summary-grid">
-            ${toggleRow("🔊 Som", "sound")}
-            ${toggleRow("📳 Vibração", "vibration")}
-            ${toggleRow("✨ Animações", "motion")}
+            ${toggleRow("Som", "sound")}
+            ${toggleRow("Vibração", "vibration")}
+            ${toggleRow("Animações", "motion")}
           </div>
-          <button class="button primary" data-action="home">🏠 Inicio</button>
+          <button class="button primary" data-action="home">Início</button>
         </div>
       </section>
     `);
@@ -293,63 +344,91 @@
   function renderModeChoice(direction = "forward") {
     if (!game.currentCard) disconnectHostRoom();
     setScreen(`
-      <section class="screen">
-        <div class="stack">
-          ${topbar("Escolha o baralho", "home")}
-          <div class="deck-choice">
-            ${modeCard("biblia", "📖", "Biblia", "Personagens, historias, lugares, livros e milagres.", "150+ desafios")}
-            ${modeCard("variados", "🌎", "Temas variados", "Filmes, animais, comidas, tecnologia, esportes e muito mais.", "150+ desafios")}
+      <section class="screen mode-screen">
+        <div class="mode-visual-bg" aria-hidden="true">
+          <span class="light-arc mode-arc-one"></span>
+          <span class="light-arc mode-arc-two"></span>
+          <span class="party-chip mode-chip-a"></span>
+          <span class="party-chip mode-chip-b"></span>
+          <span class="party-chip mode-chip-c"></span>
+          <span class="sparkle mode-sparkle-a"></span>
+          <span class="sparkle mode-sparkle-b"></span>
+        </div>
+        <div class="stack mode-stack">
+          ${topbar("Baralhos", "home")}
+          <div class="mode-headline">
+            <span>Escolha a vibe da rodada</span>
+            <h2>Qual baralho vai para a mesa?</h2>
+          </div>
+          <div class="deck-choice deck-choice-premium">
+            ${modeCard("biblia", "assets/mode/deck-biblia-premium.png", "Bíblia", "Personagens, histórias, lugares, livros e milagres.", "150+ desafios", "Clássico")}
+            ${modeCard("variados", "assets/mode/deck-variados-premium.png", "Temas variados", "Filmes, comidas, games, esportes, viagens e muito mais.", "150+ desafios", "Party")}
           </div>
         </div>
       </section>
     `, direction);
   }
 
-  function modeCard(mode, emoji, title, description, count) {
+  function modeCard(mode, image, title, description, count, tag) {
     return `
       <button class="mode-card deck-${mode}" data-action="pick-mode" data-value="${mode}">
         <span class="mode-check" aria-hidden="true">✓</span>
-        <span class="mode-emoji">${emoji}</span>
-        <strong>${title}</strong>
-        <small>${count}</small>
-        <p>${description}</p>
+        <span class="mode-card-glow" aria-hidden="true"></span>
+        <span class="mode-asset-wrap" aria-hidden="true">
+          <img class="mode-asset" src="${image}" alt="">
+        </span>
+        <span class="mode-copy">
+          <small>${tag}</small>
+          <strong>${title}</strong>
+          <p>${description}</p>
+        </span>
+        <span class="mode-count">${count}</span>
       </button>
     `;
   }
 
   function selectMode(mode, control) {
+    if (control?.classList.contains("choosing")) return;
     game.mode = mode;
     game.deck = mode === "biblia" ? window.CARDS_BIBLIA : window.CARDS_VARIADOS;
     game.category = "todas";
     game.difficulty = "todas";
-    control?.classList.add("selected");
-    feedback("correct");
-    setTimeout(renderConfig, motionDelay(180));
+    control?.classList.add("selected", "choosing");
+    document.querySelectorAll(".mode-card").forEach((card) => {
+      if (card !== control) card.classList.add("dim-away");
+    });
+    feedback("deckSelect");
+    setTimeout(renderConfig, motionDelay(620));
   }
 
   function renderConfig(direction = "forward") {
     const categories = [...new Set(game.deck.map((card) => card.categoria))]
       .sort((a, b) => labelForCategory(a).localeCompare(labelForCategory(b)));
-    const modeTitle = game.mode === "biblia" ? "📖 Biblia" : "🌎 Temas variados";
+    const modeTitle = game.mode === "biblia" ? "Bíblia" : "Temas variados";
     const customActive = game.customTimeActive || !timeOptions.includes(game.duration);
 
     setScreen(`
-      <section class="screen config-screen">
-        <div class="stack">
-          ${topbar(modeTitle, "mode")}
+      <section class="screen config-screen premium-flow-screen">
+        ${ambientBackdrop("setup-bg")}
+        <div class="stack config-stack premium-stack">
+          ${topbar("Partida", "mode")}
+          <div class="setup-headline">
+            <span>${escapeHtml(modeTitle)}</span>
+            <h2>Prepare a rodada</h2>
+          </div>
           <div class="game-setup">
             <section class="setup-block teams-block">
-              <h3>👥 Equipes</h3>
+              <h3><span class="setup-icon">👥</span> Equipes</h3>
               <div class="team-columns">
                 ${teamEditor("blue")}
                 ${teamEditor("red")}
               </div>
             </section>
             <section class="setup-block">
-              <h3>⏱ Tempo</h3>
+              <h3><span class="setup-icon">⏱</span> Tempo</h3>
               <div class="chip-grid time-grid">
                 ${timeOptions.map((seconds) => optionChip("set-time", seconds, formatDuration(seconds), !customActive && game.duration === seconds)).join("")}
-                <button class="chip ${customActive ? "active" : ""}" data-action="show-custom-time" data-value="${game.customDuration}">⚙ Personalizado</button>
+                <button class="chip ${customActive ? "active" : ""}" data-action="show-custom-time" data-value="${game.customDuration}">Personalizado</button>
               </div>
               <div class="custom-time ${customActive ? "show" : ""}">
                 ${[60, 120, 180, 240, 300].map((seconds) => optionChip("set-custom-time", seconds, formatDuration(seconds), game.duration === seconds)).join("")}
@@ -360,19 +439,19 @@
               </div>
             </section>
             <section class="setup-block">
-              <h3>🎯 Rodadas</h3>
+              <h3><span class="setup-icon">🎯</span> Rodadas</h3>
               <div class="chip-grid">
                 ${[4, 6, 8, 10, 12].map((rounds) => optionChip("set-rounds", rounds, String(rounds), game.rounds === rounds)).join("")}
               </div>
             </section>
             <section class="setup-block">
-              <h3>🔥 Dificuldade</h3>
+              <h3><span class="setup-icon">🔥</span> Dificuldade</h3>
               <div class="chip-grid">
                 ${Object.entries(difficultyLabels).map(([value, label]) => optionChip("set-difficulty", value, label, game.difficulty === value)).join("")}
               </div>
             </section>
             <section class="setup-block">
-              <h3>🃏 Categoria</h3>
+              <h3><span class="setup-icon">🃏</span> Categoria</h3>
               <div class="chip-scroll">
                 ${optionChip("set-category", "todas", "Todas", game.category === "todas")}
                 ${categories.map((category) => optionChip("set-category", category, (categoryIcons[category] || "🃏") + " " + labelForCategory(category), game.category === category)).join("")}
@@ -380,8 +459,8 @@
             </section>
             <section class="setup-block fiscal-setup">
               <div>
-                <h3>📱 Fiscal em outro celular</h3>
-                <p>Cria uma sala espelhada. Neste pacote estatico, a sala usa sync.js local; para dois celulares reais, conecte um backend nesse arquivo.</p>
+                <h3><span class="setup-icon">📱</span> Fiscal remoto</h3>
+                <p>Um amigo acompanha a carta em outro celular e marca “Não pode!” por QR Code ou link.</p>
               </div>
               <button class="switch" role="switch" aria-checked="${game.remoteFiscal}" aria-label="Usar fiscal em outro celular" data-action="toggle" data-value="remoteFiscal"></button>
             </section>
@@ -396,7 +475,7 @@
     const meta = teamMeta[team];
     return `
       <div class="team-editor ${meta.className}">
-        <label>${meta.dot} Nome do time
+        <label>${meta.dot} Time
           <input data-team-input="${team}" value="${escapeAttr(game.teamNames[team])}" autocomplete="off">
         </label>
         <div class="player-list" aria-label="Jogadores do ${escapeAttr(game.teamNames[team])}">
@@ -410,7 +489,7 @@
             </div>
           `).join("")}
         </div>
-        <button class="add-player" data-action="add-player" data-value="${team}">+ Adicionar jogador</button>
+        <button class="add-player" data-action="add-player" data-value="${team}">+ Jogador</button>
       </div>
     `;
   }
@@ -558,19 +637,20 @@
     const link = game.syncRoom?.link || "";
     const isSupabase = game.syncRoom?.backend === "supabase";
     setScreen(`
-      <section class="screen">
-        <div class="stack">
-          ${topbar("Sala do fiscal", "mode")}
+      <section class="screen room-screen premium-flow-screen">
+        ${ambientBackdrop("room-bg")}
+        <div class="stack premium-stack">
+          ${topbar("Fiscal", "mode")}
           <div class="room-card">
-            <span class="room-label">Sala</span>
+            <span class="room-label">Código da sala</span>
             <strong>${escapeHtml(code)}</strong>
             <div id="room-qr" class="qr-card qr-fallback" aria-label="QR Code para entrar como fiscal">${qrPattern(code)}</div>
             <p class="room-link">${escapeHtml(link)}</p>
-            <button class="button white" data-action="copy-room">Copiar link</button>
-            <div id="fiscal-status" class="connection-status waiting">Aguardando fiscal</div>
-            <p class="sync-note">${isSupabase ? "Sala online via Supabase Realtime. O fiscal pode ler o QR Code ou abrir o link." : "Supabase ainda nao configurado. Preencha supabase-config.js para a sala funcionar entre celulares."}</p>
+            <button class="button white" data-action="copy-room">Copiar convite</button>
+            <div id="fiscal-status" class="connection-status waiting">Esperando fiscal</div>
+            <p class="sync-note">${isSupabase ? "Compartilhe o QR Code ou o link. Quando o fiscal entrar, a sala fica pronta." : "Conexão online ainda não configurada. Você pode começar no host ou ativar a sala online depois."}</p>
           </div>
-          <button class="button primary" data-action="start-after-room">Começar no host</button>
+          <button class="button primary" data-action="start-after-room">Começar partida</button>
         </div>
       </section>
     `, "forward", false, () => renderQRCode("room-qr", link));
@@ -583,15 +663,15 @@
     const fiscalPlayer = currentFiscalPlayer();
     sendFiscalState("pass");
     setScreen(`
-      <section class="screen pass-screen">
-        ${decorations()}
+      <section class="screen pass-screen premium-flow-screen">
+        ${ambientBackdrop("pass-bg")}
         <div class="stack center">
           <div class="pass-card">
             <div class="turn-team ${teamMeta[team].className}">${teamMeta[team].dot} Vez do ${escapeHtml(game.teamNames[team])}</div>
             <h2>${escapeHtml(player)}</h2>
             <p>vai dar as pistas!</p>
-            <div class="phone-cue">📱 Passe o celular para ${escapeHtml(player)}</div>
-            <div class="privacy">👀 Cuidado! Os outros jogadores não podem olhar a carta.</div>
+            <div class="phone-cue">Passe o celular para ${escapeHtml(player)}</div>
+            <div class="privacy">Os outros jogadores não podem olhar a carta.</div>
             ${game.remoteFiscal ? `<div class="fiscal-cue">Fiscal: <strong>${escapeHtml(fiscalPlayer)}</strong></div>` : ""}
           </div>
           <button class="button primary hero-button" data-action="ready">Estou pronto</button>
@@ -642,7 +722,8 @@
     }
 
     setScreen(`
-      <section class="screen play-screen">
+      <section class="screen play-screen premium-flow-screen">
+        ${ambientBackdrop("play-bg")}
         <div class="play-layout">
           <div class="play-top">
             <button class="icon-button soft" data-action="ask-exit" aria-label="Sair da partida">${xIcon()}</button>
@@ -779,14 +860,15 @@
   function renderRoundEnd() {
     const player = currentPlayer();
     setScreen(`
-      <section class="screen">
+      <section class="screen summary-screen premium-flow-screen">
+        ${ambientBackdrop("summary-bg")}
         <div class="stack center">
           <div class="panel summary-grid round-end">
-            <h2>⏰ Fim da rodada</h2>
+            <h2>Fim da rodada</h2>
             <p><strong>${escapeHtml(player)}</strong></p>
-            <div class="stat score-pop"><span>✅ Acertos</span><b>${game.roundStats.correct}</b></div>
-            <div class="stat score-pop delay-1"><span>⏭ Puladas</span><b>${game.roundStats.skipped}</b></div>
-            <div class="stat score-pop delay-2"><span>🚫 Não Pode</span><b>${game.roundStats.forbidden}</b></div>
+            <div class="stat score-pop"><span>Acertos</span><b>${game.roundStats.correct}</b></div>
+            <div class="stat score-pop delay-1"><span>Puladas</span><b>${game.roundStats.skipped}</b></div>
+            <div class="stat score-pop delay-2"><span>Não Pode</span><b>${game.roundStats.forbidden}</b></div>
             <div class="points-won">Pontos conquistados <strong>+${game.roundStats.correct}</strong></div>
           </div>
           <button class="button primary" data-action="round-continue">Continuar</button>
@@ -809,17 +891,18 @@
     const blueLeads = game.scores.blue > game.scores.red;
     const redLeads = game.scores.red > game.scores.blue;
     const leaderText = blueLeads
-      ? `🔥 ${game.teamNames.blue} esta na frente!`
+      ? `${game.teamNames.blue} está na frente!`
       : redLeads
-        ? `🔥 ${game.teamNames.red} esta na frente!`
-        : "🤝 Tudo empatado!";
+        ? `${game.teamNames.red} está na frente!`
+        : "Tudo empatado!";
     const maxScore = Math.max(1, game.scores.blue, game.scores.red);
 
     setScreen(`
-      <section class="screen">
+      <section class="screen score-screen premium-flow-screen">
+        ${ambientBackdrop("score-bg")}
         <div class="stack center">
           <div class="panel scoreboard">
-            <h2>🏆 Placar</h2>
+            <h2>Placar</h2>
             ${teamScore("blue", blueLeads, maxScore)}
             ${teamScore("red", redLeads, maxScore)}
             <p class="leader-line">${escapeHtml(leaderText)}</p>
@@ -829,7 +912,7 @@
               <small>${teamMeta[nextTeam].dot} ${escapeHtml(game.teamNames[nextTeam])}</small>
             </div>
           </div>
-          <button class="button primary" data-action="next-round">Proxima rodada</button>
+          <button class="button primary" data-action="next-round">Próxima rodada</button>
         </div>
       </section>
     `);
@@ -855,23 +938,23 @@
       : `<h2>${escapeHtml(game.teamNames[winner].toUpperCase())} venceu!</h2><p><strong>${game.scores[winner]}</strong><span> pontos</span></p>`;
 
     setScreen(`
-      <section class="screen final-screen">
-        ${decorations()}
+      <section class="screen final-screen premium-flow-screen">
+        ${ambientBackdrop("final-bg")}
         <div class="stack center">
           <div class="panel winner">
             <div class="big">🏆</div>
             ${result}
             <div class="summary-grid">
-              <div class="stat"><span>✅ Acertos</span><b>${game.totalStats.correct}</b></div>
-              <div class="stat"><span>🚫 Não Pode</span><b>${game.totalStats.forbidden}</b></div>
-              <div class="stat"><span>⏭ Puladas</span><b>${game.totalStats.skipped}</b></div>
-              <div class="stat"><span>🔥 Melhor rodada</span><b>${game.bestRound}</b></div>
+              <div class="stat"><span>Acertos</span><b>${game.totalStats.correct}</b></div>
+              <div class="stat"><span>Não Pode</span><b>${game.totalStats.forbidden}</b></div>
+              <div class="stat"><span>Puladas</span><b>${game.totalStats.skipped}</b></div>
+              <div class="stat"><span>Melhor rodada</span><b>${game.bestRound}</b></div>
             </div>
           </div>
           <div class="actions three">
-            <button class="button primary" data-action="restart">🔄 Revanche</button>
-            <button class="button white" data-action="new-game">🎲 Nova partida</button>
-            <button class="button ghost" data-action="home">🏠 Inicio</button>
+            <button class="button primary" data-action="restart">Revanche</button>
+            <button class="button white" data-action="new-game">Nova partida</button>
+            <button class="button ghost" data-action="home">Início</button>
           </div>
         </div>
       </section>
@@ -880,11 +963,12 @@
 
   function renderNoCards() {
     setScreen(`
-      <section class="screen">
+      <section class="screen no-cards-screen premium-flow-screen">
+        ${ambientBackdrop("empty-bg")}
         <div class="stack center">
           <div class="panel summary-grid">
             <h2>Sem cartas</h2>
-            <p class="empty">Não ha cartas suficientes para esse filtro sem repetir durante a partida.</p>
+            <p class="empty">Não há cartas suficientes para esse filtro sem repetir durante a partida.</p>
             <p class="muted">Troque a categoria ou dificuldade para continuar jogando com cartas novas.</p>
           </div>
           <button class="button primary" data-action="mode">Escolher baralho</button>
@@ -988,15 +1072,16 @@
     disconnectHostRoom();
     setScreen(`
       <section class="screen fiscal-screen">
+        ${ambientBackdrop("fiscal-bg")}
         <div class="stack center">
           <div class="panel fiscal-join">
             <h2>Fiscal da rodada</h2>
-            <p>Entre com o codigo da sala para acompanhar a carta.</p>
-            <label>Codigo da sala
+            <p>Digite o código da sala para acompanhar a carta em outro celular.</p>
+            <label>Código da sala
               <input id="room-code" inputmode="numeric" maxlength="4" value="${escapeAttr(code)}" autocomplete="off">
             </label>
             <button class="button primary" data-action="join-fiscal">Entrar como fiscal</button>
-            <p class="sync-note">Depois que o Supabase estiver configurado, voce pode entrar por codigo ou lendo o QR Code gerado no celular principal.</p>
+            <p class="sync-note">Você também pode abrir pelo QR Code mostrado no celular principal.</p>
           </div>
         </div>
       </section>
@@ -1006,7 +1091,7 @@
   function joinFiscalFromInput() {
     const code = document.querySelector("#room-code")?.value.trim();
     if (!code) {
-      showToast("Digite o codigo");
+      showToast("Digite o código");
       return;
     }
     fiscal.endpoint?.disconnect();
@@ -1036,6 +1121,7 @@
     if (!state) {
       setScreen(`
         <section class="screen fiscal-screen">
+          ${ambientBackdrop("fiscal-bg")}
           <div class="stack center">
             <div class="panel fiscal-join">
               <h2>Conectando...</h2>
@@ -1050,6 +1136,7 @@
 
     setScreen(`
       <section class="screen fiscal-screen">
+        ${ambientBackdrop("fiscal-bg")}
         <div class="fiscal-layout">
           <div class="fiscal-top">
             <span>Fiscal da rodada</span>
@@ -1060,7 +1147,7 @@
           ${state.card ? cardMarkup(state.card, "fiscal-card") : `<div class="pass-card"><h2>${escapeHtml(state.statusLabel || "Aguardando rodada")}</h2></div>`}
           <button class="hold-button" data-action="hold-forbidden" data-hold="forbidden">
             <span class="hold-progress" aria-hidden="true"></span>
-            <strong>🚨 Segure se ele falar uma proibida</strong>
+            <strong>Segure se ele falar uma proibida</strong>
           </button>
           <p class="sync-note">Pressione por meio segundo para evitar toque acidental.</p>
         </div>
@@ -1251,7 +1338,8 @@
       tick: 8,
       timeOver: [120, 50, 150],
       timeOverSoft: 50,
-      victory: [60, 40, 90]
+      victory: [60, 40, 90],
+      deckSelect: [16, 22, 32]
     };
     navigator.vibrate(patterns[type] || 10);
   }
@@ -1271,6 +1359,12 @@
 
   function playSfx(type) {
     if (!settings.sound) return;
+    if (type === "deckSelect") {
+      playSweep(260, 920, 190, "sine", 0.022);
+      setTimeout(() => playSweep(520, 1320, 135, "triangle", 0.017), 72);
+      setTimeout(() => playTone(1240, 72, "sine", 0.014), 148);
+      return;
+    }
     const patterns = {
       tap: [[520, 35, "sine", 0.018]],
       correct: [[680, 50, "triangle", 0.035], [920, 75, "triangle", 0.025]],
@@ -1301,6 +1395,29 @@
       oscillator.connect(gain).connect(game.audio.destination);
       oscillator.start();
       oscillator.stop(game.audio.currentTime + duration / 1000);
+    } catch {
+      settings.sound = false;
+      persistSettings();
+    }
+  }
+
+  function playSweep(startFrequency, endFrequency, duration, type = "sine", volume = 0.018) {
+    try {
+      const AudioContext = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContext) return;
+      game.audio ||= new AudioContext();
+      const oscillator = game.audio.createOscillator();
+      const gain = game.audio.createGain();
+      const now = game.audio.currentTime;
+      oscillator.frequency.setValueAtTime(startFrequency, now);
+      oscillator.frequency.exponentialRampToValueAtTime(Math.max(1, endFrequency), now + duration / 1000);
+      oscillator.type = type;
+      gain.gain.setValueAtTime(0.001, now);
+      gain.gain.exponentialRampToValueAtTime(volume, now + 0.018);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + duration / 1000);
+      oscillator.connect(gain).connect(game.audio.destination);
+      oscillator.start(now);
+      oscillator.stop(now + duration / 1000);
     } catch {
       settings.sound = false;
       persistSettings();
