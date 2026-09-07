@@ -32,7 +32,9 @@
       state: new Set(),
       forbidden: new Set(),
       connection: new Set(),
-      stateRequest: new Set()
+      stateRequest: new Set(),
+      identity: new Set(),
+      peerDisconnect: new Set()
     };
   }
 
@@ -94,7 +96,11 @@
 
       if (type === "state") emit(listeners, "state", payload.state);
       if (type === "forbidden") emit(listeners, "forbidden", payload.payload || {});
-      if (type === "disconnect") setConnected(false);
+      if (type === "identity") emit(listeners, "identity", payload);
+      if (type === "disconnect") {
+        emit(listeners, "peerDisconnect", payload);
+        setConnected(false);
+      }
     }
 
     channel
@@ -103,6 +109,7 @@
       .on("broadcast", { event: "request-state" }, ({ payload }) => receive("request-state", payload))
       .on("broadcast", { event: "state" }, ({ payload }) => receive("state", payload))
       .on("broadcast", { event: "forbidden" }, ({ payload }) => receive("forbidden", payload))
+      .on("broadcast", { event: "identity" }, ({ payload }) => receive("identity", payload))
       .on("broadcast", { event: "disconnect" }, ({ payload }) => receive("disconnect", payload))
       .on("presence", { event: "sync" }, () => {
         const state = channel.presenceState();
@@ -142,6 +149,9 @@
       sendForbidden(payload) {
         send("forbidden", { payload });
       },
+      sendIdentity(identity) {
+        send("identity", { identity });
+      },
       requestState() {
         send("request-state");
       },
@@ -152,6 +162,14 @@
       onForbidden(listener) {
         listeners.forbidden.add(listener);
         return () => listeners.forbidden.delete(listener);
+      },
+      onIdentityChange(listener) {
+        listeners.identity.add(listener);
+        return () => listeners.identity.delete(listener);
+      },
+      onPeerDisconnect(listener) {
+        listeners.peerDisconnect.add(listener);
+        return () => listeners.peerDisconnect.delete(listener);
       },
       onConnectionChange(listener) {
         listeners.connection.add(listener);
@@ -209,7 +227,11 @@
 
       if (message.type === "state") emit(listeners, "state", message.state);
       if (message.type === "forbidden") emit(listeners, "forbidden", message.payload || {});
-      if (message.type === "disconnect") setConnected(false);
+      if (message.type === "identity") emit(listeners, "identity", message);
+      if (message.type === "disconnect") {
+        emit(listeners, "peerDisconnect", message);
+        setConnected(false);
+      }
     }
 
     channel?.addEventListener("message", (event) => receive(event.data));
@@ -247,6 +269,9 @@
       sendForbidden(payload) {
         post({ type: "forbidden", payload });
       },
+      sendIdentity(identity) {
+        post({ type: "identity", identity });
+      },
       requestState() {
         post({ type: "request-state" });
       },
@@ -257,6 +282,14 @@
       onForbidden(listener) {
         listeners.forbidden.add(listener);
         return () => listeners.forbidden.delete(listener);
+      },
+      onIdentityChange(listener) {
+        listeners.identity.add(listener);
+        return () => listeners.identity.delete(listener);
+      },
+      onPeerDisconnect(listener) {
+        listeners.peerDisconnect.add(listener);
+        return () => listeners.peerDisconnect.delete(listener);
       },
       onConnectionChange(listener) {
         listeners.connection.add(listener);

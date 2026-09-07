@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { createOnlineLobby } = require("./helpers");
+const { createOnlineLobby, joinFirstRoundPlayers } = require("./helpers");
 
 test.describe("partida online e lobby", () => {
   test("gera codigo, link e QR Code da partida online", async ({ page }) => {
@@ -17,7 +17,9 @@ test.describe("partida online e lobby", () => {
   });
 
   test("permite comecar partida a partir do lobby", async ({ page }) => {
-    await createOnlineLobby(page);
+    const context = page.context();
+    const code = await createOnlineLobby(page);
+    await joinFirstRoundPlayers(context, code);
     await page.getByRole("button", { name: /Começar partida/i }).click();
     await expect(page.getByText(/Passe o celular para Cali/i)).toBeVisible();
   });

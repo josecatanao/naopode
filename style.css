@@ -108,7 +108,24 @@ h3 {
   position: relative;
   display: flex;
   min-height: 100dvh;
+  overflow-x: hidden;
   padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+}
+
+@supports (min-height: 100svh) {
+  body,
+  .app-shell,
+  #app,
+  .screen {
+    min-height: 100svh;
+  }
+
+  .home,
+  .mode-screen,
+  .countdown {
+    height: 100svh;
+    min-height: 100svh;
+  }
 }
 
 .stack {
@@ -910,15 +927,29 @@ h3 {
 .no-cards-screen,
 .fiscal-screen {
   isolation: isolate;
-  height: 100dvh;
   min-height: 100dvh;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   padding: max(12px, env(safe-area-inset-top)) clamp(14px, 4vw, 22px) max(14px, env(safe-area-inset-bottom));
   background:
     radial-gradient(circle at 50% 18%, rgba(43, 169, 255, 0.5), transparent 28%),
     radial-gradient(circle at 18% 48%, rgba(255, 210, 50, 0.16), transparent 22%),
     radial-gradient(circle at 85% 76%, rgba(143, 80, 255, 0.25), transparent 28%),
     linear-gradient(180deg, #071861 0%, #0753c3 48%, #052b86 76%, #03104a 100%);
+}
+
+@supports (min-height: 100svh) {
+  .premium-flow-screen,
+  .config-screen,
+  .room-screen,
+  .info-screen,
+  .settings-screen,
+  .summary-screen,
+  .score-screen,
+  .no-cards-screen,
+  .fiscal-screen {
+    min-height: 100svh;
+  }
 }
 
 .premium-flow-screen::before,
@@ -1022,12 +1053,19 @@ h3 {
 
 .config-screen {
   height: auto;
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: auto;
 }
 
 .config-screen .config-stack {
   height: auto;
   min-height: calc(100dvh - 26px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+}
+
+@supports (min-height: 100svh) {
+  .config-screen .config-stack {
+    min-height: calc(100svh - 26px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+  }
 }
 
 .setup-headline {
@@ -1448,6 +1486,11 @@ select:focus {
   color: rgba(255, 255, 255, 0.9);
   font-size: 0.72rem;
   font-weight: 900;
+}
+
+.online-team-preview span.is-occupied {
+  background: rgba(40, 199, 111, 0.22);
+  color: var(--white);
 }
 
 .online-steps {
@@ -2229,6 +2272,13 @@ select:focus {
   overflow-wrap: anywhere;
   font-size: 1.04rem;
   font-weight: 1000;
+}
+
+.identity-player.is-occupied,
+.identity-player:disabled {
+  opacity: 0.46;
+  cursor: not-allowed;
+  filter: grayscale(0.3);
 }
 
 .center-note {
@@ -3417,6 +3467,16 @@ body.no-motion *::after {
   50% { transform: translateY(-7px) rotate(0.6deg); }
 }
 
+@keyframes gameCardFloatCompact {
+  0%, 100% { transform: translateY(0) rotate(-0.25deg); }
+  50% { transform: translateY(-3px) rotate(0.35deg); }
+}
+
+@keyframes flowPanelInCompact {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
 @keyframes modeCardShine {
   0%, 46%, 100% { opacity: 0.58; transform: translateX(-18%); }
   64% { opacity: 0.9; transform: translateX(18%); }
@@ -3731,5 +3791,483 @@ body.no-motion *::after {
   .mode-count {
     right: 12px;
     bottom: 10px;
+  }
+}
+
+@media (max-width: 430px) {
+  .online-room-card {
+    gap: 8px;
+    padding: 14px 16px;
+  }
+
+  .online-room-card > strong {
+    font-size: 3rem;
+  }
+
+  .qr-card {
+    width: 128px;
+    height: 128px;
+    border-width: 7px;
+    border-radius: 18px;
+  }
+
+  .qr-card img,
+  .qr-card canvas {
+    width: 110px;
+    height: 110px;
+  }
+
+  .online-teams-preview {
+    gap: 7px;
+  }
+
+  .online-team-preview {
+    gap: 6px;
+    border-radius: 15px;
+    padding: 8px;
+  }
+
+  .online-steps {
+    gap: 6px;
+  }
+
+  .online-steps span {
+    border-radius: 12px;
+    padding: 7px 10px;
+    font-size: 0.78rem;
+  }
+
+  .room-link {
+    font-size: 0.72rem;
+    line-height: 1.15;
+  }
+
+  .connection-status {
+    padding: 8px 10px;
+    font-size: 0.82rem;
+  }
+}
+
+@media (max-width: 380px), (max-height: 700px) {
+  .screen {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .premium-flow-screen,
+  .config-screen,
+  .room-screen,
+  .info-screen,
+  .settings-screen,
+  .summary-screen,
+  .score-screen,
+  .no-cards-screen,
+  .fiscal-screen {
+    padding-right: 10px;
+    padding-left: 10px;
+  }
+
+  .flow-visual-bg,
+  .mode-visual-bg,
+  .home-visual-bg {
+    opacity: 0.82;
+  }
+
+  .home-visual-bg {
+    inset: -2dvh -3vw;
+  }
+
+  .bg-card-talk,
+  .bg-card-gesture {
+    width: 112px;
+  }
+
+  .bg-card-mime,
+  .bg-card-draw {
+    opacity: 0.36;
+  }
+
+  .bg-card-forbid {
+    right: -18px;
+    bottom: 8%;
+    width: 128px;
+    opacity: 0.28;
+  }
+
+  .flow-arc-one,
+  .flow-arc-two,
+  .mode-arc-one,
+  .mode-arc-two {
+    animation-duration: 18s;
+  }
+
+  .topbar {
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    gap: 7px;
+  }
+
+  .topbar h2 {
+    font-size: 1.32rem;
+    line-height: 1;
+  }
+
+  .back,
+  .topbar-spacer,
+  .icon-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .back svg,
+  .icon-button svg {
+    width: 22px;
+    height: 22px;
+  }
+
+  .setup-headline {
+    gap: 3px;
+  }
+
+  .setup-headline h2,
+  .online-join-headline h2 {
+    font-size: 1.32rem;
+    line-height: 1;
+  }
+
+  .setup-headline span,
+  .online-join-headline span,
+  .room-label {
+    font-size: 0.68rem;
+  }
+
+  .game-setup,
+  .identity-board {
+    gap: 8px;
+    padding-right: 1px;
+    padding-left: 1px;
+  }
+
+  .setup-block,
+  .identity-team {
+    gap: 8px;
+    border-width: 2px;
+    border-radius: 18px;
+    padding: 9px;
+  }
+
+  .setup-block h3,
+  .identity-team h3 {
+    font-size: 0.88rem;
+  }
+
+  .team-editor {
+    border-radius: 15px;
+    padding: 8px;
+  }
+
+  .player-row {
+    grid-template-columns: 26px minmax(0, 1fr) 34px;
+    gap: 6px;
+  }
+
+  .player-row > span {
+    width: 26px;
+    height: 26px;
+    font-size: 0.7rem;
+  }
+
+  input,
+  select {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 0.86rem;
+  }
+
+  .chip-grid,
+  .chip-scroll {
+    gap: 6px;
+  }
+
+  .chip {
+    min-height: 33px;
+    padding: 6px 9px;
+    font-size: 0.76rem;
+  }
+
+  .chip-scroll {
+    max-height: 88px;
+  }
+
+  .fiscal-setup {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .switch {
+    width: 58px;
+    height: 32px;
+  }
+
+  .switch::after {
+    top: 4px;
+    left: 4px;
+    width: 20px;
+    height: 20px;
+  }
+
+  .switch[aria-checked="true"]::after {
+    transform: translateX(26px);
+  }
+
+  .online-room-card {
+    max-height: none;
+  }
+
+  .online-teams-preview {
+    grid-template-columns: 1fr;
+    gap: 7px;
+  }
+
+  .online-team-preview {
+    gap: 6px;
+    border-radius: 15px;
+    padding: 8px;
+  }
+
+  .online-team-preview span {
+    padding: 4px 7px;
+    font-size: 0.68rem;
+  }
+
+  .online-steps span,
+  .connection-status {
+    border-radius: 13px;
+    padding: 7px 9px;
+    font-size: 0.76rem;
+  }
+
+  .identity-team > div {
+    gap: 6px;
+  }
+
+  .identity-player {
+    grid-template-columns: 34px minmax(0, 1fr);
+    min-height: 48px;
+    gap: 8px;
+    border-radius: 14px;
+    padding: 7px 8px;
+  }
+
+  .identity-player span {
+    width: 34px;
+    height: 34px;
+    border-radius: 12px;
+  }
+
+  .identity-player strong {
+    font-size: 0.94rem;
+    line-height: 1.05;
+  }
+
+  .play-screen {
+    padding: max(8px, env(safe-area-inset-top)) 10px max(8px, env(safe-area-inset-bottom));
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .play-layout {
+    min-height: calc(100svh - 16px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    gap: 6px;
+  }
+
+  .play-top {
+    grid-template-columns: 42px minmax(0, 1fr) 42px;
+    gap: 7px;
+  }
+
+  .play-top .icon-button {
+    width: 42px;
+    height: 42px;
+  }
+
+  .timer {
+    min-width: 118px;
+    padding: 7px 12px;
+    font-size: 1.12rem;
+  }
+
+  .timer.last-five {
+    min-width: 88px;
+    font-size: 1.65rem;
+  }
+
+  .score-mini {
+    gap: 6px;
+    font-size: 0.82rem;
+  }
+
+  .score-mini span {
+    padding: 5px 9px;
+  }
+
+  .round-meta {
+    flex-wrap: wrap;
+    gap: 5px 7px;
+    font-size: 0.76rem;
+    line-height: 1.1;
+  }
+
+  .fiscal-play-status {
+    min-height: 32px;
+    padding: 6px 8px;
+    border-radius: 14px;
+    font-size: 0.72rem;
+    line-height: 1.1;
+  }
+
+  .fiscal-play-status button {
+    padding: 5px 8px;
+    font-size: 0.7rem;
+  }
+
+  .card-wrap {
+    min-height: 0;
+  }
+
+  .game-card {
+    gap: 6px;
+    border-width: 2px;
+    border-radius: 20px;
+    padding: 10px;
+    box-shadow: 0 8px 0 rgba(8, 31, 77, 0.2), 0 16px 30px rgba(8, 31, 77, 0.24);
+    animation: gameCardFloatCompact 5.2s ease-in-out infinite;
+  }
+
+  .prompt {
+    font-size: 0.68rem;
+  }
+
+  .card-emoji {
+    font-size: clamp(1.8rem, 9vw, 2.5rem);
+  }
+
+  .word {
+    font-size: clamp(1.45rem, 8.6vw, 2.35rem);
+    line-height: 0.98;
+  }
+
+  .forbidden-title {
+    padding: 5px 9px;
+    font-size: 0.76rem;
+  }
+
+  .forbidden-list {
+    gap: 5px;
+  }
+
+  .forbidden-list li {
+    min-height: 29px;
+    border-radius: 11px;
+    padding: 5px 8px;
+    font-size: clamp(0.76rem, 3.4vw, 0.9rem);
+    line-height: 1.08;
+  }
+
+  .bottom-actions {
+    gap: 6px;
+    padding-bottom: max(4px, env(safe-area-inset-bottom));
+  }
+
+  .bottom-actions .button {
+    min-height: 54px;
+    border-radius: 16px;
+    padding: 7px 4px;
+    font-size: 0.72rem;
+    box-shadow: 0 5px 0 rgba(8, 31, 77, 0.2), 0 10px 18px rgba(8, 31, 77, 0.2);
+  }
+
+  .bottom-actions .button span {
+    font-size: 1rem;
+  }
+
+  .pass-card,
+  .room-card,
+  .info-screen .panel,
+  .settings-screen .panel,
+  .summary-screen .panel,
+  .score-screen .panel,
+  .no-cards-screen .panel,
+  .final-screen .panel,
+  .fiscal-screen .panel,
+  .participant-card {
+    box-shadow: 0 5px 0 #043d9f, 0 12px 22px rgba(0, 10, 58, 0.32);
+    animation: flowPanelInCompact 300ms ease-out both;
+  }
+
+  .pass-card {
+    gap: 8px;
+    padding: 14px 12px;
+  }
+
+  .phone-cue,
+  .privacy,
+  .fiscal-cue {
+    border-radius: 14px;
+    padding: 10px;
+    font-size: 0.86rem;
+    line-height: 1.16;
+  }
+
+  .fiscal-layout {
+    min-height: calc(100svh - 20px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
+    gap: 8px;
+  }
+
+  .fiscal-top strong {
+    font-size: 1.35rem;
+    line-height: 1.05;
+  }
+
+  .fiscal-top small,
+  .fiscal-top span {
+    font-size: 0.72rem;
+  }
+
+  .participant-score {
+    gap: 6px;
+  }
+
+  .participant-score span {
+    border-radius: 13px;
+    padding: 7px 8px;
+    font-size: 0.68rem;
+  }
+
+  .participant-score strong {
+    font-size: 1.05rem;
+  }
+
+  .participant-card {
+    gap: 8px;
+    border-width: 2px;
+    border-radius: 20px;
+    padding: 14px 12px;
+  }
+
+  .participant-card h2 {
+    font-size: clamp(1.35rem, 7vw, 2.1rem);
+    line-height: 1;
+  }
+
+  .participant-card p {
+    font-size: 0.84rem;
+    line-height: 1.22;
+  }
+
+  .hold-button {
+    min-height: 62px;
+    border-radius: 18px;
+    padding: 10px;
+    font-size: 0.82rem;
+    box-shadow: 0 6px 0 rgba(8, 31, 77, 0.2), 0 14px 24px rgba(8, 31, 77, 0.22);
   }
 }

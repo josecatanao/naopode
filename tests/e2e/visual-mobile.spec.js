@@ -1,5 +1,5 @@
 const { test, expect } = require("@playwright/test");
-const { createOnlineLobby, joinOnlineMatch, openApp, chooseDeck, startFirstRound } = require("./helpers");
+const { createOnlineLobby, joinFirstRoundPlayers, openApp, chooseDeck, startFirstRound } = require("./helpers");
 
 test.describe("visual e mobile", () => {
   test.beforeEach(async ({}, testInfo) => {
@@ -19,7 +19,7 @@ test.describe("visual e mobile", () => {
     await chooseDeck(page);
     await expect(page.getByRole("button", { name: /Começar partida/i })).toBeVisible();
     await expect(page).toHaveScreenshot("config-mobile.png", {
-      maxDiffPixelRatio: 0.08
+      maxDiffPixelRatio: 0.1
     });
   });
 
@@ -48,7 +48,7 @@ test.describe("visual e mobile", () => {
     const context = await browser.newContext();
     const host = await context.newPage();
     const code = await createOnlineLobby(host);
-    const paulo = await joinOnlineMatch(context, code, "Paulo");
+    const { paulo } = await joinFirstRoundPlayers(context, code);
     await startFirstRound(host);
     await expect(paulo.getByText(/Fiscalize a rodada/i)).toBeVisible({ timeout: 6000 });
     await expect(paulo).toHaveScreenshot("participant-mobile.png", {

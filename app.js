@@ -109,6 +109,7 @@
     audio: null,
     syncRoom: null,
     syncStatus: "idle",
+    participants: {},
     fiscalConnected: false,
     lastTimerSecond: null
   };
@@ -168,7 +169,7 @@
     if (action === "add-player") addPlayer(value);
     if (action === "remove-player") removePlayer(control.dataset.team, Number(control.dataset.index));
     if (action === "start-game") startGame();
-    if (action === "start-after-room") renderPassPhone();
+    if (action === "start-after-room") startAfterRoom();
     if (action === "ready") startCountdown();
     if (action === "correct") markCard("correct");
     if (action === "forbidden") markCard("forbidden");
@@ -601,6 +602,7 @@
     game.roundStats = { correct: 0, skipped: 0, forbidden: 0 };
     game.totalStats = { correct: 0, skipped: 0, forbidden: 0 };
     game.bestRound = 0;
+    game.participants = {};
     game.fiscalConnected = false;
     persistSettings();
 
@@ -620,9 +622,15 @@
       return;
     }
     game.syncRoom.onConnectionChange(({ connected }) => {
-      game.fiscalConnected = connected;
+      game.fiscalConnected = connected || activeParticipants().length > 0;
       updateFiscalStatus();
       if (connected) sendFiscalState("lobby");
+    });
+    game.syncRoom.onIdentityChange?.((payload) => {
+      handleParticipantIdentity(payload);
+    });
+    game.syncRoom.onPeerDisconnect?.((payload) => {
+      if (payload?.role !== "host") removeParticipant(payload.id);
     });
     game.syncRoom.onStateRequest?.(() => {
       const status = game.syncStatus === "idle"
@@ -636,6 +644,66 @@
       markCard("forbidden");
     });
     sendFiscalState("lobby");
+  }
+
+  function handleParticipantIdentity(payload) {
+    const id = payload?.id;
+    const identity = payload?.identity;
+    if (!id || !identity) return;
+
+    const next = {
+      id,
+      name: String(identity.name || "").trim(),
+      team: String(identity.team || "").trim(),
+      connected: true,
+      updatedAt: Date.now()
+    };
+
+    if (!next.name || !next.team) return;
+    if (next.team !== "spectator" && !isConfiguredPlayer(next.name, next.team)) return;
+    if (next.team !== "spectator" && isPlayerOccupied(next.name, next.team, id)) {
+      sendFiscalState(game.syncStatus === "idle" ? "lobby" : game.syncStatus);
+      return;
+    }
+
+    game.participants[id] = next;
+    game.fiscalConnected = activeParticipants().length > 0;
+    updateFiscalStatus();
+    sendFiscalState(game.syncStatus === "idle" ? "lobby" : game.syncStatus);
+  }
+
+  function removeParticipant(id) {
+    if (!id || !game.participants[id]) return;
+    delete game.participants[id];
+    game.fiscalConnected = activeParticipants().length > 0;
+    updateFiscalStatus();
+    sendFiscalState(game.syncStatus === "idle" ? "lobby" : game.syncStatus);
+  }
+
+  function activeParticipants() {
+    return Object.values(game.participants).filter((participant) => participant.connected);
+  }
+
+  function playerKey(name, team) {
+    return `${team}:${String(name || "").trim().toLowerCase()}`;
+  }
+
+  function occupiedPlayerKeys(exceptId = "") {
+    return new Set(activeParticipants()
+      .filter((participant) => participant.team !== "spectator" && participant.id !== exceptId)
+      .map((participant) => playerKey(participant.name, participant.team)));
+  }
+
+  function isPlayerOccupied(name, team, exceptId = "") {
+    return occupiedPlayerKeys(exceptId).has(playerKey(name, team));
+  }
+
+  function isConfiguredPlayer(name, team) {
+    return (game.players[team] || []).some((player) => playerKey(player, team) === playerKey(name, team));
+  }
+
+  function occupiedPlayersSnapshot() {
+    return [...occupiedPlayerKeys()];
   }
 
   function renderRoomLobby() {
@@ -672,12 +740,37 @@
   }
 
   function onlineTeamPreview(team) {
+    const occupied = occupiedPlayerKeys();
     return `
       <div class="online-team-preview ${teamMeta[team].className}">
         <strong>${teamMeta[team].dot} ${escapeHtml(game.teamNames[team])}</strong>
-        <div>${game.players[team].map((player) => `<span>${escapeHtml(player)}</span>`).join("")}</div>
+        <div>${game.players[team].map((player) => {
+          const taken = occupied.has(playerKey(player, team));
+          return `<span class="${taken ? "is-occupied" : ""}">${escapeHtml(player)}${taken ? " entrou" : ""}</span>`;
+        }).join("")}</div>
       </div>
     `;
+  }
+
+  function startAfterRoom() {
+    if (!game.remoteFiscal) {
+      renderPassPhone();
+      return;
+    }
+
+    const needed = [
+      { name: currentPlayer(), team: currentTeam() },
+      { name: currentFiscalPlayer(), team: oppositeTeam(currentTeam()) }
+    ].filter((player, index, list) => list.findIndex((item) => playerKey(item.name, item.team) === playerKey(player.name, player.team)) === index);
+
+    const missing = needed.filter((player) => !isPlayerOccupied(player.name, player.team));
+    if (missing.length) {
+      showToast(`Aguardando ${missing.map((player) => player.name).join(" e ")}`);
+      sendFiscalState("lobby");
+      return;
+    }
+
+    renderPassPhone();
   }
 
   function renderPassPhone(direction = "forward") {
@@ -763,7 +856,7 @@
             <span>${teamMeta[currentTeam()].dot} ${escapeHtml(game.teamNames[currentTeam()])}</span>
           </div>
           ${game.remoteFiscal ? fiscalHostStatus() : ""}
-          <div id="card-slot" class="card-wrap">${cardMarkup(game.currentCard)}</div>
+          <div id="card-slot" class="card-wrap">${game.remoteFiscal ? hostOnlineRoundCard() : cardMarkup(game.currentCard)}</div>
           <div class="bottom-actions ${game.remoteFiscal ? "online-actions" : ""}">
             <button class="button white round-button" data-action="skip"><span>⏭</span><strong>Pular</strong></button>
             <button class="button green round-button" data-action="correct"><span>✅</span><strong>Acertou</strong></button>
@@ -842,6 +935,20 @@
     const card = available[Math.floor(Math.random() * available.length)];
     game.usedCards.add(card.id);
     return card;
+  }
+
+  function hostOnlineRoundCard() {
+    return `
+      <article class="participant-card host-private-card playing">
+        <span>Rodada ${game.currentRound + 1}/${escapeHtml(game.rounds)}</span>
+        <h2>Carta no celular do jogador</h2>
+        <p>${escapeHtml(currentPlayer())} ve a carta completa. O host controla acertos e pulos sem revelar as palavras proibidas.</p>
+        <div class="participant-turn ${teamMeta[currentTeam()].className}">
+          <strong>${teamMeta[currentTeam()].dot} ${escapeHtml(game.teamNames[currentTeam()])}</strong>
+          <small>Fiscal: ${escapeHtml(currentFiscalPlayer())}</small>
+        </div>
+      </article>
+    `;
   }
 
   function tickTimer() {
@@ -954,6 +1061,7 @@
   }
 
   function renderGameEnd() {
+    sendFiscalState("final");
     const winner = getWinner();
     feedback("victory");
     burstConfetti(56);
@@ -986,6 +1094,7 @@
   }
 
   function renderNoCards() {
+    sendFiscalState("no-cards");
     setScreen(`
       <section class="screen no-cards-screen premium-flow-screen">
         ${ambientBackdrop("empty-bg")}
@@ -1062,6 +1171,7 @@
         </div>
       </div>
     `);
+    sendFiscalState("paused");
   }
 
   function closeExitModal() {
@@ -1071,11 +1181,13 @@
       game.paused = false;
       game.endAt = Date.now() + game.pauseRemainingMs;
       setRoundButtonsDisabled(false);
+      sendFiscalState("playing");
       tickTimer();
     }
   }
 
   function exitMatch() {
+    sendFiscalState("closed");
     clearTimers();
     disconnectHostRoom();
     game.currentCard = null;
@@ -1126,6 +1238,7 @@
     fiscal.endpoint?.onStateChange((state) => {
       clearInterval(fiscal.requestTimer);
       fiscal.state = state;
+      if (!confirmCurrentIdentity(state)) return;
       if (fiscal.identity) renderFiscalMirror();
       else renderOnlineIdentity();
     });
@@ -1144,6 +1257,27 @@
     renderFiscalMirror();
   }
 
+  function confirmCurrentIdentity(state) {
+    if (!fiscal.identity || fiscal.identity.name === "spectator") return true;
+    const ownId = fiscal.endpoint?.id || fiscal.identity.id;
+    const accepted = (state.participants || []).some((participant) => (
+      participant.id === ownId &&
+      participant.name === fiscal.identity.name &&
+      participant.team === fiscal.identity.team
+    ));
+    const occupiedByOther = (state.occupiedPlayers || []).includes(playerKey(fiscal.identity.name, fiscal.identity.team));
+
+    if (occupiedByOther && !accepted) {
+      fiscal.identity = null;
+      fiscal.renderedCardKey = null;
+      showToast("Jogador ja escolhido");
+      renderOnlineIdentity();
+      return false;
+    }
+
+    return true;
+  }
+
   function renderOnlineIdentity() {
     const state = fiscal.state;
     if (!state) {
@@ -1153,6 +1287,7 @@
 
     const teams = state.players || game.players;
     const teamNames = state.teamNames || game.teamNames;
+    const occupied = new Set((state.occupiedPlayers || []).filter((key) => key !== playerKey(fiscal.identity?.name, fiscal.identity?.team)));
     setScreen(`
       <section class="screen fiscal-screen online-join-screen">
         ${ambientBackdrop("join-bg")}
@@ -1162,8 +1297,8 @@
             <h2>Quem é você?</h2>
           </div>
           <div class="identity-board">
-            ${identityTeam("blue", teamNames.blue, teams.blue || [])}
-            ${identityTeam("red", teamNames.red, teams.red || [])}
+            ${identityTeam("blue", teamNames.blue, teams.blue || [], occupied)}
+            ${identityTeam("red", teamNames.red, teams.red || [], occupied)}
           </div>
           <button class="button white" data-action="join-spectator">Entrar como espectador</button>
           <p class="sync-note center-note">Escolha seu nome para o app mostrar carta, placar ou fiscalização conforme sua vez.</p>
@@ -1175,25 +1310,36 @@
     });
   }
 
-  function identityTeam(team, name, players) {
+  function identityTeam(team, name, players, occupied = new Set()) {
     return `
       <section class="identity-team ${teamMeta[team].className}">
         <h3>${teamMeta[team].dot} ${escapeHtml(name || teamMeta[team].label)}</h3>
         <div>
-          ${players.map((player) => `
-            <button class="identity-player" data-action="choose-identity" data-team="${team}" data-value="${escapeAttr(player)}">
+          ${players.map((player) => {
+            const taken = occupied.has(playerKey(player, team));
+            return `
+            <button class="identity-player ${taken ? "is-occupied" : ""}" ${taken ? "disabled" : ""} data-action="choose-identity" data-team="${team}" data-value="${escapeAttr(player)}">
               <span>${escapeHtml(player.slice(0, 1).toUpperCase())}</span>
-              <strong>${escapeHtml(player)}</strong>
+              <strong>${escapeHtml(player)}${taken ? " ocupado" : ""}</strong>
             </button>
-          `).join("")}
+          `;
+          }).join("")}
         </div>
       </section>
     `;
   }
 
   function chooseOnlineIdentity(name, team) {
-    fiscal.identity = { name, team };
+    const identity = { id: fiscal.endpoint?.id || "", name, team };
+    const occupied = new Set(fiscal.state?.occupiedPlayers || []);
+    if (team !== "spectator" && occupied.has(playerKey(name, team))) {
+      showToast("Jogador ja escolhido");
+      renderOnlineIdentity();
+      return;
+    }
+    fiscal.identity = identity;
     fiscal.renderedCardKey = null;
+    fiscal.endpoint?.sendIdentity?.(identity);
     showToast(name === "spectator" ? "Entrou como espectador" : `Você é ${name}`);
     renderFiscalMirror();
   }
@@ -1281,9 +1427,9 @@
     const identity = fiscal.identity || { name: "spectator", team: "spectator" };
     const actorName = state.player || "jogador";
     const actorTeam = state.team || "blue";
-    const isActor = identity.name !== "spectator" && identity.name === actorName;
+    const isActor = identity.name !== "spectator" && identity.name === actorName && identity.team === actorTeam;
     const isOpponent = identity.team !== "spectator" && identity.team !== actorTeam;
-    const canFlag = isOpponent && state.status === "playing";
+    const canFlag = isOpponent && identity.name === state.fiscalPlayer && state.status === "playing";
     const teamNames = state.teamNames || game.teamNames;
     const scores = state.scores || { blue: 0, red: 0 };
 
@@ -1349,7 +1495,10 @@
         ? ["Olho nas proibidas", "Se a pessoa falar uma palavra proibida, segure o botao vermelho."]
         : ["Rodada em andamento", "Acompanhe o tempo e o placar sem ver a carta."],
       paused: ["Partida pausada", "A carta fica protegida ate o host continuar."],
-      ended: ["Fim da rodada", "Confira o placar e aguarde a proxima chamada."]
+      ended: ["Fim da rodada", "Confira o placar e aguarde a proxima chamada."],
+      final: ["Partida encerrada", finalParticipantMessage(state)],
+      "no-cards": ["Sem cartas", "O host precisa trocar o filtro ou iniciar outra partida."],
+      closed: ["Partida encerrada", "O host saiu da partida."]
     };
     const [title, copy] = messages[status] || messages.lobby;
 
@@ -1421,6 +1570,8 @@
       teamName: game.teamNames[currentTeam()],
       teamNames: game.teamNames,
       players: game.players,
+      participants: activeParticipants(),
+      occupiedPlayers: occupiedPlayersSnapshot(),
       scores: game.scores,
       currentRound: game.currentRound,
       rounds: game.rounds,
@@ -1430,8 +1581,17 @@
       startTimestamp: game.endAt - game.duration * 1000,
       endTimestamp: game.endAt,
       pausedRemainingMs: remainingMs,
+      winner: status === "final" ? getWinner() : null,
       updatedAt: Date.now()
     });
+  }
+
+  function finalParticipantMessage(state) {
+    if (!state.scores) return "Confira o resultado no celular principal.";
+    if (state.winner === "draw") return `Empate em ${state.scores.blue || 0} x ${state.scores.red || 0}.`;
+    const teamNames = state.teamNames || game.teamNames;
+    const winnerName = teamNames[state.winner] || "Um time";
+    return `${winnerName} venceu por ${state.scores[state.winner] || 0} pontos.`;
   }
 
   function currentTeam() {
@@ -1515,10 +1675,12 @@
     const current = $app.firstElementChild;
     const enterClass = direction === "back" ? "screen-enter-back" : direction === "none" ? "screen-enter-none" : "screen-enter-forward";
     const exitClass = direction === "back" ? "screen-exit-back" : "screen-exit-forward";
+    const shouldResetScroll = direction !== "none";
 
     if (!current || immediate || direction === "none" || !settings.motion) {
       $app.innerHTML = html;
       $app.firstElementChild?.classList.add(enterClass);
+      if (shouldResetScroll) resetViewportScroll();
       afterRender?.();
       return;
     }
@@ -1527,8 +1689,14 @@
     setTimeout(() => {
       $app.innerHTML = html;
       $app.firstElementChild?.classList.add(enterClass);
+      if (shouldResetScroll) resetViewportScroll();
       afterRender?.();
     }, motionDelay(120));
+  }
+
+  function resetViewportScroll() {
+    document.scrollingElement?.scrollTo({ top: 0, left: 0 });
+    $app.scrollTo?.({ top: 0, left: 0 });
   }
 
   function showToast(message) {

@@ -55,8 +55,15 @@ async function startFirstRound(hostPage) {
   await expect(hostPage.getByRole("button", { name: /Acertou/i })).toBeVisible({ timeout: 6000 });
 }
 
+async function joinFirstRoundPlayers(context, code) {
+  const cali = await joinOnlineMatch(context, code, "Cali");
+  const paulo = await joinOnlineMatch(context, code, "Paulo");
+  return { cali, paulo };
+}
+
 module.exports = {
   createOnlineLobby,
+  joinFirstRoundPlayers,
   joinOnlineMatch,
   preparePage,
   openApp,
