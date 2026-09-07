@@ -29,11 +29,13 @@ async function chooseDeck(page, deckName = "Bíblia") {
   await expect(page.getByRole("heading", { name: /Prepare a rodada/i })).toBeVisible();
 }
 
-async function createOnlineLobby(page) {
+async function createOnlineLobby(page, hostName = "Cali") {
   await openApp(page);
   await chooseDeck(page);
   await page.getByRole("switch", { name: /Usar partida online/i }).click();
   await page.getByRole("button", { name: /Começar partida/i }).click();
+  await expect(page.getByRole("heading", { name: /Quem é você/i })).toBeVisible();
+  await page.getByRole("button", { name: new RegExp(hostName, "i") }).click();
   await expect(page.getByText(/Partida online/i).first()).toBeVisible();
   const code = (await page.locator(".online-room-card > strong").textContent()).trim();
   expect(code).toMatch(/^\d{4}$/);
@@ -51,14 +53,12 @@ async function joinOnlineMatch(context, code, playerName) {
 
 async function startFirstRound(hostPage) {
   await hostPage.getByRole("button", { name: /Começar partida/i }).click();
-  await hostPage.getByRole("button", { name: /Estou pronto/i }).click();
   await expect(hostPage.getByRole("button", { name: /Acertou/i })).toBeVisible({ timeout: 6000 });
 }
 
 async function joinFirstRoundPlayers(context, code) {
-  const cali = await joinOnlineMatch(context, code, "Cali");
   const paulo = await joinOnlineMatch(context, code, "Paulo");
-  return { cali, paulo };
+  return { paulo };
 }
 
 module.exports = {

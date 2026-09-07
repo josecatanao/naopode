@@ -6,7 +6,7 @@ test.describe("entrada de participante", () => {
     const context = await browser.newContext();
     const host = await context.newPage();
     const code = await createOnlineLobby(host);
-    const participant = await joinOnlineMatch(context, code, "Cali");
+    const participant = await joinOnlineMatch(context, code, "Paulo");
     await expect(participant.getByText(/aguardando inicio da partida/i)).toBeVisible();
     await context.close();
   });
@@ -15,11 +15,11 @@ test.describe("entrada de participante", () => {
     const context = await browser.newContext();
     const host = await context.newPage();
     const code = await createOnlineLobby(host);
-    const participant = await joinOnlineMatch(context, code, "Cali");
+    const participant = await joinOnlineMatch(context, code, "Paulo");
     await participant.getByRole("button", { name: /Trocar jogador/i }).click();
     await expect(participant.getByRole("heading", { name: /Quem é você/i })).toBeVisible();
-    await participant.getByRole("button", { name: /Paulo/i }).click();
-    await expect(participant.getByText(/Paulo/i).first()).toBeVisible();
+    await participant.getByRole("button", { name: /Entrar como espectador/i }).click();
+    await expect(participant.locator("#fiscal-player-name")).toHaveText("Espectador");
     await context.close();
   });
 
@@ -27,7 +27,6 @@ test.describe("entrada de participante", () => {
     const context = await browser.newContext();
     const host = await context.newPage();
     const code = await createOnlineLobby(host);
-    await joinOnlineMatch(context, code, "Cali");
 
     const secondParticipant = await context.newPage();
     await openApp(secondParticipant, `/?room=${code}`);

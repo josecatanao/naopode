@@ -12,7 +12,8 @@ test.describe("partida online e lobby", () => {
     await createOnlineLobby(page);
     await expect(page.locator(".online-teams-preview")).toContainText("Time Azul");
     await expect(page.locator(".online-teams-preview")).toContainText("Time Vermelho");
-    await expect(page.locator(".online-teams-preview")).toContainText("Cali");
+    await expect(page.locator(".online-participant-list")).toContainText("HOST");
+    await expect(page.locator(".online-participant-list")).toContainText("Cali");
     await expect(page.locator(".online-teams-preview")).toContainText("Paulo");
   });
 
@@ -21,6 +22,7 @@ test.describe("partida online e lobby", () => {
     const code = await createOnlineLobby(page);
     await joinFirstRoundPlayers(context, code);
     await page.getByRole("button", { name: /Começar partida/i }).click();
-    await expect(page.getByText(/Passe o celular para Cali/i)).toBeVisible();
+    await expect(page.getByText(/Sua vez/i)).toBeVisible();
+    await expect(page.getByRole("button", { name: /Acertou/i })).toBeVisible();
   });
 });

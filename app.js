@@ -110,6 +110,12 @@
     syncRoom: null,
     syncStatus: "idle",
     participants: {},
+    roomState: null,
+    hostIdentity: null,
+    processedRoomEvents: new Set(),
+    lastRoomEventId: null,
+    roomTimerId: null,
+    roomAdvanceId: null,
     fiscalConnected: false,
     lastTimerSecond: null
   };
@@ -124,7 +130,9 @@
     requestTimer: null,
     holdTimer: null,
     holdFrame: null,
-    holdStart: 0
+    holdStart: 0,
+    lastEventId: null,
+    lastTimerSecond: null
   };
 
   applyMotionPreference();
@@ -186,10 +194,12 @@
     if (action === "toggle") toggleSetting(value);
     if (action === "copy-room") copyRoomLink();
     if (action === "join-fiscal") joinFiscalFromInput();
+    if (action === "choose-host-identity") chooseHostIdentity(value, control.dataset.team);
     if (action === "choose-identity") chooseOnlineIdentity(value, control.dataset.team);
     if (action === "join-spectator") chooseOnlineIdentity("spectator", "spectator");
     if (action === "change-identity") changeOnlineIdentity();
     if (action === "disable-fiscal") disableFiscalMode();
+    if (action === "room-next-round") advanceOnlineRound();
   }
 
   function handleInput(event) {
@@ -603,12 +613,18 @@
     game.totalStats = { correct: 0, skipped: 0, forbidden: 0 };
     game.bestRound = 0;
     game.participants = {};
+    game.roomState = null;
+    game.hostIdentity = null;
+    game.processedRoomEvents = new Set();
+    game.lastRoomEventId = null;
     game.fiscalConnected = false;
     persistSettings();
 
     if (game.remoteFiscal) {
       createHostRoom();
-      renderRoomLobby();
+      initializeRoomState();
+      sendRoomState();
+      renderHostIdentity();
       return;
     }
     renderPassPhone();
@@ -624,7 +640,7 @@
     game.syncRoom.onConnectionChange(({ connected }) => {
       game.fiscalConnected = connected || activeParticipants().length > 0;
       updateFiscalStatus();
-      if (connected) sendFiscalState("lobby");
+      if (connected) sendRoomState();
     });
     game.syncRoom.onIdentityChange?.((payload) => {
       handleParticipantIdentity(payload);
@@ -633,17 +649,185 @@
       if (payload?.role !== "host") removeParticipant(payload.id);
     });
     game.syncRoom.onStateRequest?.(() => {
-      const status = game.syncStatus === "idle"
-        ? game.currentCard ? "playing" : "lobby"
-        : game.syncStatus;
-      sendFiscalState(status);
+      sendRoomState();
+    });
+    game.syncRoom.onGameEvent?.((event) => {
+      handleRoomGameEvent(event);
     });
     game.syncRoom.onForbidden(() => {
-      if (game.locked || game.paused || !game.currentCard) return;
-      showToast("🚨 Fiscal marcou!");
-      markCard("forbidden");
+      handleRoomGameEvent({ kind: "forbidden", actorId: game.roomState?.inspectorId, eventId: `legacy-${Date.now()}` });
     });
-    sendFiscalState("lobby");
+    sendRoomState();
+  }
+
+  function initializeRoomState() {
+    game.roomState = {
+      hostId: game.syncRoom?.id || "",
+      host: game.syncRoom?.id || "",
+      room: game.syncRoom?.code || "",
+      participants: [],
+      teams: {
+        blue: { id: "blue", name: game.teamNames.blue, playerNames: [...game.players.blue] },
+        red: { id: "red", name: game.teamNames.red, playerNames: [...game.players.red] }
+      },
+      currentPlayerId: null,
+      currentTeamId: null,
+      inspectorId: null,
+      round: 0,
+      currentRound: 0,
+      roundState: "lobby",
+      status: "lobby",
+      remainingTime: game.duration,
+      roundHits: 0,
+      roundSkips: 0,
+      roundForbidden: 0,
+      roundStats: { correct: 0, skipped: 0, forbidden: 0 },
+      totalStats: { correct: 0, skipped: 0, forbidden: 0 },
+      scores: { blue: 0, red: 0 },
+      currentCard: null,
+      card: null,
+      usedCardIds: [],
+      duration: game.duration,
+      rounds: game.rounds,
+      roundStartedAt: null,
+      roundEndsAt: null,
+      startTimestamp: null,
+      endTimestamp: null,
+      pausedRemainingMs: 0,
+      lastEvent: null,
+      roundResult: null,
+      matchFinished: false,
+      winner: null,
+      updatedAt: Date.now()
+    };
+    syncLocalFromRoomState();
+  }
+
+  function renderHostIdentity() {
+    const state = game.roomState;
+    if (!state) return;
+    const occupied = new Set(occupiedPlayersSnapshot());
+    setScreen(`
+      <section class="screen fiscal-screen online-join-screen">
+        ${ambientBackdrop("join-bg")}
+        <div class="stack premium-stack">
+          <div class="online-join-headline">
+            <span>Host da sala ${escapeHtml(game.syncRoom?.code || "")}</span>
+            <h2>Quem é você?</h2>
+          </div>
+          <div class="identity-board">
+            ${identityTeam("blue", state.teams.blue.name, state.teams.blue.playerNames, occupied, "choose-host-identity")}
+            ${identityTeam("red", state.teams.red.name, state.teams.red.playerNames, occupied, "choose-host-identity")}
+          </div>
+          <p class="sync-note center-note">O host tambem joga. Escolha seu nome e equipe para aparecer no lobby.</p>
+        </div>
+      </section>
+    `, "forward", false);
+  }
+
+  function chooseHostIdentity(name, team) {
+    if (!game.syncRoom || !game.roomState) return;
+    if (team !== "spectator" && isPlayerOccupied(name, team, game.syncRoom.id)) {
+      showToast("Jogador ja escolhido");
+      renderHostIdentity();
+      return;
+    }
+    const identity = { id: game.syncRoom.id, name, team };
+    game.hostIdentity = identity;
+    upsertRoomParticipant(game.syncRoom.id, identity, true);
+    showToast(`Você é ${name}`);
+    sendRoomState();
+    renderRoomLobby();
+  }
+
+  function syncLocalFromRoomState() {
+    const state = game.roomState;
+    if (!state) return;
+    game.participants = Object.fromEntries((state.participants || []).map((participant) => [participant.id, participant]));
+    game.scores = { blue: state.scores?.blue || 0, red: state.scores?.red || 0 };
+    game.currentRound = Number(state.round || 0);
+    game.roundStats = {
+      correct: Number(state.roundHits || state.roundStats?.correct || 0),
+      skipped: Number(state.roundSkips || state.roundStats?.skipped || 0),
+      forbidden: Number(state.roundForbidden || state.roundStats?.forbidden || 0)
+    };
+    game.totalStats = {
+      correct: Number(state.totalStats?.correct || 0),
+      skipped: Number(state.totalStats?.skipped || 0),
+      forbidden: Number(state.totalStats?.forbidden || 0)
+    };
+    game.currentCard = state.currentCard || state.card || null;
+  }
+
+  function upsertRoomParticipant(id, identity, isHost = false) {
+    if (!game.roomState || !id || !identity) return false;
+    const name = String(identity.name || "").trim();
+    const team = String(identity.team || "").trim();
+    if (!name || !team || team === "spectator") return false;
+    if (!isConfiguredPlayer(name, team)) return false;
+    if (isPlayerOccupied(name, team, id)) return false;
+
+    const participants = [...(game.roomState.participants || [])];
+    const current = participants.find((participant) => participant.id === id);
+    const next = {
+      id,
+      name,
+      team,
+      connected: true,
+      isHost: isHost || id === game.roomState.hostId,
+      joinedAt: current?.joinedAt || Date.now(),
+      updatedAt: Date.now()
+    };
+    const index = participants.findIndex((participant) => participant.id === id);
+    if (index >= 0) participants[index] = next;
+    else participants.push(next);
+
+    game.roomState.participants = participants;
+    game.roomState.updatedAt = Date.now();
+    syncLocalFromRoomState();
+    return true;
+  }
+
+  function roomParticipantById(id) {
+    return (game.roomState?.participants || []).find((participant) => participant.id === id && participant.connected);
+  }
+
+  function roomParticipantsByTeam(team) {
+    const roster = game.roomState?.teams?.[team]?.playerNames || game.players[team] || [];
+    const order = new Map(roster.map((name, index) => [playerKey(name, team), index]));
+    return (game.roomState?.participants || [])
+      .filter((participant) => participant.connected && participant.team === team)
+      .sort((a, b) => {
+        const aOrder = order.has(playerKey(a.name, team)) ? order.get(playerKey(a.name, team)) : 999;
+        const bOrder = order.has(playerKey(b.name, team)) ? order.get(playerKey(b.name, team)) : 999;
+        return aOrder - bOrder || a.joinedAt - b.joinedAt;
+      });
+  }
+
+  function assignOnlineRoles() {
+    if (!game.roomState) return false;
+    const team = game.roomState.round % 2 === 0 ? "blue" : "red";
+    const opponent = oppositeTeam(team);
+    const teamPlayers = roomParticipantsByTeam(team);
+    const inspectors = roomParticipantsByTeam(opponent);
+    if (!teamPlayers.length || !inspectors.length) return false;
+    const playerIndex = Math.floor(game.roomState.round / 2) % teamPlayers.length;
+    const inspectorIndex = Math.floor(game.roomState.round / 2) % inspectors.length;
+    const currentPlayer = teamPlayers[playerIndex];
+    const inspector = inspectors[inspectorIndex];
+    game.roomState.currentPlayerId = currentPlayer.id;
+    game.roomState.currentTeamId = team;
+    game.roomState.inspectorId = inspector.id;
+    game.roomState.host = game.roomState.hostId;
+    game.roomState.player = currentPlayer.name;
+    game.roomState.team = team;
+    game.roomState.teamName = game.roomState.teams[team].name;
+    game.roomState.fiscalPlayer = inspector.name;
+    return true;
+  }
+
+  function participantDisplayName(id, fallback = "jogador") {
+    return roomParticipantById(id)?.name || fallback;
   }
 
   function handleParticipantIdentity(payload) {
@@ -651,37 +835,38 @@
     const identity = payload?.identity;
     if (!id || !identity) return;
 
-    const next = {
-      id,
-      name: String(identity.name || "").trim(),
-      team: String(identity.team || "").trim(),
-      connected: true,
-      updatedAt: Date.now()
-    };
-
-    if (!next.name || !next.team) return;
-    if (next.team !== "spectator" && !isConfiguredPlayer(next.name, next.team)) return;
-    if (next.team !== "spectator" && isPlayerOccupied(next.name, next.team, id)) {
-      sendFiscalState(game.syncStatus === "idle" ? "lobby" : game.syncStatus);
+    if (identity.team === "spectator") {
+      removeParticipant(id);
+      sendRoomState();
       return;
     }
 
-    game.participants[id] = next;
+    if (!upsertRoomParticipant(id, identity, false)) {
+      sendRoomState();
+      return;
+    }
     game.fiscalConnected = activeParticipants().length > 0;
     updateFiscalStatus();
-    sendFiscalState(game.syncStatus === "idle" ? "lobby" : game.syncStatus);
+    sendRoomState();
+    if (document.querySelector(".room-screen")) renderRoomLobby("none");
   }
 
   function removeParticipant(id) {
-    if (!id || !game.participants[id]) return;
-    delete game.participants[id];
+    if (!id || !game.roomState) return;
+    const participant = game.roomState.participants.find((item) => item.id === id);
+    if (!participant) return;
+    participant.connected = false;
+    participant.updatedAt = Date.now();
+    game.roomState.updatedAt = Date.now();
+    syncLocalFromRoomState();
     game.fiscalConnected = activeParticipants().length > 0;
     updateFiscalStatus();
-    sendFiscalState(game.syncStatus === "idle" ? "lobby" : game.syncStatus);
+    sendRoomState();
+    if (document.querySelector(".room-screen")) renderRoomLobby("none");
   }
 
   function activeParticipants() {
-    return Object.values(game.participants).filter((participant) => participant.connected);
+    return (game.roomState?.participants || Object.values(game.participants)).filter((participant) => participant.connected);
   }
 
   function playerKey(name, team) {
@@ -706,10 +891,11 @@
     return [...occupiedPlayerKeys()];
   }
 
-  function renderRoomLobby() {
+  function renderRoomLobby(direction = "forward") {
     const code = game.syncRoom?.code || "----";
     const link = game.syncRoom?.link || "";
     const isSupabase = game.syncRoom?.backend === "supabase";
+    const participantCount = activeParticipants().filter((participant) => participant.team !== "spectator").length;
     setScreen(`
       <section class="screen room-screen premium-flow-screen">
         ${ambientBackdrop("room-bg")}
@@ -726,6 +912,14 @@
               ${onlineTeamPreview("blue")}
               ${onlineTeamPreview("red")}
             </div>
+            <div class="online-participant-list">
+              <strong>Conectados (${participantCount})</strong>
+              ${activeParticipants().filter((participant) => participant.team !== "spectator").map((participant) => `
+                <span class="${teamMeta[participant.team]?.className || ""}">
+                  ${participant.isHost ? "HOST · " : ""}${escapeHtml(participant.name)} · ${escapeHtml(game.roomState?.teams?.[participant.team]?.name || participant.team)}
+                </span>
+              `).join("") || "<small>Nenhum jogador conectado ainda.</small>"}
+            </div>
             <div class="online-steps">
               <span>1. Envie o link</span>
               <span>2. Cada pessoa escolhe o nome</span>
@@ -736,17 +930,22 @@
           <button class="button primary" data-action="start-after-room">Começar partida</button>
         </div>
       </section>
-    `, "forward", false, () => renderQRCode("room-qr", link));
+    `, direction, false, () => {
+      renderQRCode("room-qr", link);
+      updateFiscalStatus();
+    });
   }
 
   function onlineTeamPreview(team) {
-    const occupied = occupiedPlayerKeys();
+    const players = game.roomState?.teams?.[team]?.playerNames || game.players[team] || [];
+    const participants = activeParticipants().filter((participant) => participant.team === team);
+    const occupied = new Map(participants.map((participant) => [playerKey(participant.name, team), participant]));
     return `
       <div class="online-team-preview ${teamMeta[team].className}">
-        <strong>${teamMeta[team].dot} ${escapeHtml(game.teamNames[team])}</strong>
-        <div>${game.players[team].map((player) => {
-          const taken = occupied.has(playerKey(player, team));
-          return `<span class="${taken ? "is-occupied" : ""}">${escapeHtml(player)}${taken ? " entrou" : ""}</span>`;
+        <strong>${teamMeta[team].dot} ${escapeHtml(game.roomState?.teams?.[team]?.name || game.teamNames[team])}</strong>
+        <div>${players.map((player) => {
+          const taken = occupied.get(playerKey(player, team));
+          return `<span class="${taken ? "is-occupied" : ""}">${taken?.isHost ? "HOST · " : ""}${escapeHtml(player)}${taken ? " entrou" : ""}</span>`;
         }).join("")}</div>
       </div>
     `;
@@ -758,19 +957,69 @@
       return;
     }
 
-    const needed = [
-      { name: currentPlayer(), team: currentTeam() },
-      { name: currentFiscalPlayer(), team: oppositeTeam(currentTeam()) }
-    ].filter((player, index, list) => list.findIndex((item) => playerKey(item.name, item.team) === playerKey(player.name, player.team)) === index);
-
-    const missing = needed.filter((player) => !isPlayerOccupied(player.name, player.team));
-    if (missing.length) {
-      showToast(`Aguardando ${missing.map((player) => player.name).join(" e ")}`);
-      sendFiscalState("lobby");
+    if (!game.hostIdentity) {
+      showToast("O host precisa escolher jogador");
+      renderHostIdentity();
       return;
     }
 
-    renderPassPhone();
+    if (!roomParticipantsByTeam("blue").length || !roomParticipantsByTeam("red").length) {
+      showToast("Cada time precisa de jogador conectado");
+      sendRoomState();
+      return;
+    }
+
+    beginOnlineRound();
+  }
+
+  function beginOnlineRound() {
+    if (!game.roomState) return;
+    clearTimers();
+    if (!assignOnlineRoles()) {
+      showToast("Aguardando jogadores dos dois times");
+      game.roomState.roundState = "lobby";
+      game.roomState.status = "lobby";
+      sendRoomState();
+      renderRoomLobby("none");
+      return;
+    }
+
+    const card = pickCard();
+    if (!card) {
+      game.roomState.roundState = "no-cards";
+      game.roomState.status = "no-cards";
+      game.roomState.currentCard = null;
+      game.roomState.card = null;
+      sendRoomState();
+      renderNoCards();
+      return;
+    }
+
+    const now = Date.now();
+    game.roomState.roundState = "playing";
+    game.roomState.status = "playing";
+    game.roomState.remainingTime = game.duration;
+    game.roomState.roundHits = 0;
+    game.roomState.roundSkips = 0;
+    game.roomState.roundForbidden = 0;
+    game.roomState.roundStats = { correct: 0, skipped: 0, forbidden: 0 };
+    game.roomState.currentCard = card;
+    game.roomState.card = card;
+    game.roomState.roundStartedAt = now;
+    game.roomState.roundEndsAt = now + game.duration * 1000;
+    game.roomState.startTimestamp = game.roomState.roundStartedAt;
+    game.roomState.endTimestamp = game.roomState.roundEndsAt;
+    game.roomState.pausedRemainingMs = 0;
+    game.roomState.roundResult = null;
+    game.roomState.matchFinished = false;
+    game.roomState.lastEvent = { id: `turn-${game.roomState.round}-${now}`, kind: "turn", team: game.roomState.currentTeamId, actorId: game.roomState.currentPlayerId, at: now };
+    game.locked = false;
+    game.paused = false;
+    game.transitioning = false;
+    syncLocalFromRoomState();
+    sendRoomState();
+    renderHostOnlineState(true);
+    startRoomTimer();
   }
 
   function renderPassPhone(direction = "forward") {
@@ -872,6 +1121,11 @@
   }
 
   function markCard(kind) {
+    const onlineStatus = game.roomState?.roundState || fiscal.state?.roundState || fiscal.state?.status;
+    if (onlineStatus === "playing" && (game.roomState || fiscal.state)) {
+      sendRoomAction(kind);
+      return;
+    }
     if (game.locked || game.transitioning || game.paused || !game.currentCard) return;
     game.transitioning = true;
     setRoundButtonsDisabled(true);
@@ -909,6 +1163,120 @@
     }
   }
 
+  function sendRoomAction(kind) {
+    const state = game.roomState || fiscal.state;
+    const identity = currentOnlineIdentity();
+    if (!state || !identity?.id || state.roundState !== "playing") return;
+
+    const isCurrentPlayer = identity.id === state.currentPlayerId;
+    const isInspector = identity.id === state.inspectorId;
+    if ((kind === "correct" || kind === "skip") && !isCurrentPlayer) {
+      showToast("Apenas o jogador da vez controla a carta");
+      return;
+    }
+    if (kind === "forbidden" && !isInspector) {
+      showToast("Apenas o fiscal registra proibida");
+      return;
+    }
+
+    const event = {
+      eventId: `${identity.id}-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      kind,
+      actorId: identity.id,
+      round: state.round,
+      cardId: state.card?.id || state.currentCard?.id || null,
+      at: Date.now()
+    };
+
+    if (game.syncRoom && identity.id === game.syncRoom.id) handleRoomGameEvent(event);
+    else fiscal.endpoint?.sendGameEvent?.(event);
+  }
+
+  function currentOnlineIdentity() {
+    if (game.syncRoom && game.hostIdentity) return { ...game.hostIdentity, id: game.syncRoom.id };
+    if (fiscal.endpoint && fiscal.identity) return { ...fiscal.identity, id: fiscal.endpoint.id };
+    return null;
+  }
+
+  function handleRoomGameEvent(event) {
+    if (!game.roomState || game.roomState.roundState !== "playing") return;
+    const eventId = event?.eventId || `${event?.actorId || "event"}-${event?.kind || "unknown"}-${event?.at || Date.now()}`;
+    if (game.processedRoomEvents.has(eventId)) return;
+    game.processedRoomEvents.add(eventId);
+
+    const kind = event?.kind;
+    const actorId = event?.actorId;
+    if (Number(event?.round) !== Number(game.roomState.round)) {
+      sendRoomState();
+      return;
+    }
+    if ((kind === "correct" || kind === "skip") && actorId !== game.roomState.currentPlayerId) {
+      sendRoomState();
+      return;
+    }
+    if (kind === "forbidden" && actorId !== game.roomState.inspectorId) {
+      sendRoomState();
+      return;
+    }
+    if (event?.cardId && game.roomState.currentCard?.id && event.cardId !== game.roomState.currentCard.id) {
+      sendRoomState();
+      return;
+    }
+
+    applyRoomAction(kind, eventId, actorId);
+  }
+
+  function applyRoomAction(kind, eventId, actorId) {
+    const state = game.roomState;
+    if (!state) return;
+    const team = state.currentTeamId;
+    const now = Date.now();
+
+    if (kind === "correct") {
+      state.scores[team] = Number(state.scores[team] || 0) + 1;
+      state.roundHits += 1;
+      state.roundStats.correct = state.roundHits;
+      state.totalStats.correct = Number(state.totalStats.correct || 0) + 1;
+    }
+
+    if (kind === "skip") {
+      state.roundSkips += 1;
+      state.roundStats.skipped = state.roundSkips;
+      state.totalStats.skipped = Number(state.totalStats.skipped || 0) + 1;
+    }
+
+    if (kind === "forbidden") {
+      state.roundForbidden += 1;
+      state.roundStats.forbidden = state.roundForbidden;
+      state.totalStats.forbidden = Number(state.totalStats.forbidden || 0) + 1;
+    }
+
+    state.lastEvent = {
+      id: eventId,
+      kind,
+      actorId,
+      team,
+      score: { ...state.scores },
+      roundHits: state.roundHits,
+      roundSkips: state.roundSkips,
+      roundForbidden: state.roundForbidden,
+      at: now
+    };
+
+    const next = pickCard();
+    if (!next) {
+      finishOnlineRound(false);
+      return;
+    }
+    state.currentCard = next;
+    state.card = next;
+    state.remainingTime = roomRemainingSeconds(state);
+    state.updatedAt = now;
+    syncLocalFromRoomState();
+    sendRoomState();
+    renderHostOnlineState(false);
+  }
+
   function nextCard() {
     if (game.locked) return;
     const next = pickCard();
@@ -942,7 +1310,7 @@
       <article class="participant-card host-private-card playing">
         <span>Rodada ${game.currentRound + 1}/${escapeHtml(game.rounds)}</span>
         <h2>Carta no celular do jogador</h2>
-        <p>${escapeHtml(currentPlayer())} ve a carta completa. O host controla acertos e pulos sem revelar as palavras proibidas.</p>
+        <p>${escapeHtml(currentPlayer())} ve a carta completa. Acertos e pulos ficam no aparelho do jogador da vez.</p>
         <div class="participant-turn ${teamMeta[currentTeam()].className}">
           <strong>${teamMeta[currentTeam()].dot} ${escapeHtml(game.teamNames[currentTeam()])}</strong>
           <small>Fiscal: ${escapeHtml(currentFiscalPlayer())}</small>
@@ -1197,6 +1565,10 @@
   }
 
   function guardedHome() {
+    if (game.roomState) {
+      exitMatch();
+      return;
+    }
     if (game.currentCard && !game.locked && !game.paused) {
       openExitModal();
       return;
@@ -1237,8 +1609,8 @@
     fiscal.endpoint = window.NaoPodeSync?.joinRoom(code);
     fiscal.endpoint?.onStateChange((state) => {
       clearInterval(fiscal.requestTimer);
-      fiscal.state = state;
-      if (!confirmCurrentIdentity(state)) return;
+      fiscal.state = normalizeRoomState(state);
+      if (!confirmCurrentIdentity(fiscal.state)) return;
       if (fiscal.identity) renderFiscalMirror();
       else renderOnlineIdentity();
     });
@@ -1278,6 +1650,41 @@
     return true;
   }
 
+  function normalizeRoomState(state) {
+    if (!state) return state;
+    const roundState = state.roundState || (state.status === "ended" ? "finished" : state.status) || "lobby";
+    const currentTeamId = state.currentTeamId || state.team || null;
+    const currentPlayerId = state.currentPlayerId || getStateParticipantByName(state, state.player, currentTeamId)?.id || null;
+    const inspectorId = state.inspectorId || getStateParticipantByName(state, state.fiscalPlayer, oppositeTeam(currentTeamId || "blue"))?.id || null;
+    return {
+      ...state,
+      host: state.host || state.hostId,
+      roundState,
+      status: roundState,
+      currentTeamId,
+      currentPlayerId,
+      inspectorId,
+      round: Number.isFinite(Number(state.round)) ? Number(state.round) : Number(state.currentRound || 0),
+      currentRound: Number.isFinite(Number(state.currentRound)) ? Number(state.currentRound) : Number(state.round || 0),
+      currentCard: state.currentCard || state.card || null,
+      card: state.card || state.currentCard || null,
+      roundHits: Number(state.roundHits ?? state.roundStats?.correct ?? 0),
+      roundSkips: Number(state.roundSkips ?? state.roundStats?.skipped ?? 0),
+      roundForbidden: Number(state.roundForbidden ?? state.roundStats?.forbidden ?? 0),
+      roundEndsAt: state.roundEndsAt || state.endTimestamp,
+      roundStartedAt: state.roundStartedAt || state.startTimestamp,
+      teams: state.teams || {
+        blue: { id: "blue", name: state.teamNames?.blue || game.teamNames.blue, playerNames: state.players?.blue || game.players.blue },
+        red: { id: "red", name: state.teamNames?.red || game.teamNames.red, playerNames: state.players?.red || game.players.red }
+      }
+    };
+  }
+
+  function getStateParticipantByName(state, name, team) {
+    const key = playerKey(name, team);
+    return (state?.participants || []).find((participant) => playerKey(participant.name, participant.team) === key);
+  }
+
   function renderOnlineIdentity() {
     const state = fiscal.state;
     if (!state) {
@@ -1310,7 +1717,7 @@
     });
   }
 
-  function identityTeam(team, name, players, occupied = new Set()) {
+  function identityTeam(team, name, players, occupied = new Set(), action = "choose-identity") {
     return `
       <section class="identity-team ${teamMeta[team].className}">
         <h3>${teamMeta[team].dot} ${escapeHtml(name || teamMeta[team].label)}</h3>
@@ -1318,7 +1725,7 @@
           ${players.map((player) => {
             const taken = occupied.has(playerKey(player, team));
             return `
-            <button class="identity-player ${taken ? "is-occupied" : ""}" ${taken ? "disabled" : ""} data-action="choose-identity" data-team="${team}" data-value="${escapeAttr(player)}">
+            <button class="identity-player ${taken ? "is-occupied" : ""}" ${taken ? "disabled" : ""} data-action="${action}" data-team="${team}" data-value="${escapeAttr(player)}">
               <span>${escapeHtml(player.slice(0, 1).toUpperCase())}</span>
               <strong>${escapeHtml(player)}${taken ? " ocupado" : ""}</strong>
             </button>
@@ -1356,8 +1763,20 @@
       renderFiscalWaiting();
       return;
     }
+    renderOnlineRoomView(state, fiscal.identity || { id: fiscal.endpoint?.id || "", name: "spectator", team: "spectator" }, false);
+  }
 
-    if (fiscal.view !== "mirror") {
+  function renderHostOnlineState(force = false) {
+    const state = game.roomState;
+    if (!state || !game.hostIdentity) return;
+    renderOnlineRoomView(state, { ...game.hostIdentity, id: game.syncRoom?.id || game.hostIdentity.id }, true, force);
+  }
+
+  function renderOnlineRoomView(state, identity, isHostDevice = false, force = false) {
+    if (!state) return;
+    const viewOwner = isHostDevice ? "host" : "participant";
+    const viewKey = `${viewOwner}:${state.roundState}:${identity?.id || "spectator"}`;
+    if (fiscal.view !== viewKey || force) {
       setScreen(`
         <section class="screen fiscal-screen online-room-screen">
           ${ambientBackdrop("fiscal-bg")}
@@ -1370,23 +1789,28 @@
             <div id="fiscal-timer" class="timer">⏱ ${fiscalTime(state)}</div>
             <div id="participant-score" class="participant-score"></div>
             <div id="fiscal-card-slot"></div>
+            <div class="participant-round-actions">
+              <button class="button white round-button" data-action="skip"><span>⏭</span><strong>Pular</strong></button>
+              <button class="button green round-button" data-action="correct"><span>✅</span><strong>Acertou</strong></button>
+            </div>
             <button class="hold-button" data-action="hold-forbidden" data-hold="forbidden">
               <span class="hold-progress" aria-hidden="true"></span>
               <strong>Segure se ele falar uma proibida</strong>
             </button>
             <div class="participant-actions">
-              <button class="button ghost" data-action="change-identity">Trocar jogador</button>
+              ${isHostDevice ? `<button class="button primary" data-action="room-next-round">Próximo jogador</button>` : ""}
+              ${isHostDevice ? `<button class="button ghost" data-action="home">Encerrar</button>` : `<button class="button ghost" data-action="change-identity">Trocar jogador</button>`}
             </div>
           </div>
         </section>
       `, "none", true, () => {
-        fiscal.view = "mirror";
-        updateFiscalMirrorDom(true);
+        fiscal.view = viewKey;
+        updateOnlineRoomDom(state, identity, isHostDevice, true);
       });
     } else {
-      updateFiscalMirrorDom(false);
+      updateOnlineRoomDom(state, identity, isHostDevice, false);
     }
-    startFiscalTimer();
+    if (!isHostDevice) startFiscalTimer();
   }
 
   function renderFiscalWaiting() {
@@ -1414,7 +1838,10 @@
   }
 
   function updateFiscalMirrorDom(forceCard) {
-    const state = fiscal.state;
+    updateOnlineRoomDom(fiscal.state, fiscal.identity || { id: fiscal.endpoint?.id || "", name: "spectator", team: "spectator" }, false, forceCard);
+  }
+
+  function updateOnlineRoomDom(state, identity, isHostDevice, forceCard) {
     if (!state) return;
 
     const name = document.querySelector("#fiscal-player-name");
@@ -1423,80 +1850,101 @@
     const timer = document.querySelector("#fiscal-timer");
     const slot = document.querySelector("#fiscal-card-slot");
     const holdButton = document.querySelector(".hold-button");
+    const roundActions = document.querySelector(".participant-round-actions");
+    const nextButton = document.querySelector('[data-action="room-next-round"]');
     const score = document.querySelector("#participant-score");
-    const identity = fiscal.identity || { name: "spectator", team: "spectator" };
-    const actorName = state.player || "jogador";
-    const actorTeam = state.team || "blue";
-    const isActor = identity.name !== "spectator" && identity.name === actorName && identity.team === actorTeam;
-    const isOpponent = identity.team !== "spectator" && identity.team !== actorTeam;
-    const canFlag = isOpponent && identity.name === state.fiscalPlayer && state.status === "playing";
+    const selfId = identity?.id || "";
+    const actor = getStateParticipant(state, state.currentPlayerId);
+    const actorName = actor?.name || state.player || "jogador";
+    const actorTeam = state.currentTeamId || state.team || "blue";
+    const isActor = identity?.team !== "spectator" && selfId === state.currentPlayerId;
+    const isSameTeam = identity?.team !== "spectator" && identity?.team === actorTeam;
+    const isInspector = identity?.team !== "spectator" && selfId === state.inspectorId;
+    const canFlag = isInspector && state.roundState === "playing";
     const teamNames = state.teamNames || game.teamNames;
     const scores = state.scores || { blue: 0, red: 0 };
+    const lastEvent = state.lastEvent || null;
+    const eventHolder = isHostDevice ? game : fiscal;
+    const eventKey = isHostDevice ? "lastRoomEventId" : "lastEventId";
+    const isFreshScoreEvent = lastEvent?.kind === "correct" && eventHolder[eventKey] !== lastEvent.id;
 
-    if (roleLabel) roleLabel.textContent = participantRoleLabel(state, identity, isActor, canFlag);
-    if (name) name.textContent = identity.name === "spectator" ? "Espectador" : identity.name;
-    if (target) target.textContent = participantTargetLabel(state, identity, isActor, canFlag);
+    applyRoomEventEffects(state, identity, isHostDevice);
+
+    if (roleLabel) roleLabel.textContent = participantRoleLabel(state, identity, isActor, isInspector, isSameTeam);
+    if (name) name.textContent = identity?.team === "spectator" ? "Espectador" : identity?.name;
+    if (target) target.textContent = participantTargetLabel(state, identity, isActor, isInspector, isSameTeam);
     if (timer) {
       timer.textContent = `⏱ ${fiscalTime(state)}`;
-      timer.classList.toggle("paused", state.status === "paused");
+      const remaining = roomRemainingSeconds(state);
+      timer.classList.toggle("paused", state.roundState === "paused");
+      timer.classList.toggle("hot", remaining <= 10 && remaining > 0);
+      timer.classList.toggle("last-five", remaining <= 5 && remaining > 0);
     }
     if (score) {
       score.innerHTML = `
-        <span class="blue">🔵 ${escapeHtml(teamNames.blue || "Time Azul")} <strong>${scores.blue || 0}</strong></span>
-        <span class="red">🔴 ${escapeHtml(teamNames.red || "Time Vermelho")} <strong>${scores.red || 0}</strong></span>
+        <span class="blue ${isFreshScoreEvent && lastEvent?.team === "blue" ? "score-bump" : ""}">🔵 ${escapeHtml(teamNames.blue || "Time Azul")} <strong>${scores.blue || 0}</strong></span>
+        <span class="red ${isFreshScoreEvent && lastEvent?.team === "red" ? "score-bump" : ""}">🔴 ${escapeHtml(teamNames.red || "Time Vermelho")} <strong>${scores.red || 0}</strong></span>
       `;
     }
+    if (roundActions) roundActions.hidden = !(isActor && state.roundState === "playing");
     if (holdButton) {
-      holdButton.hidden = !isOpponent;
+      holdButton.hidden = !isInspector;
       holdButton.disabled = !canFlag;
       holdButton.querySelector("strong").textContent = canFlag
         ? "Segure se ele falar uma proibida"
-        : "Fiscalização disponível na vez adversária";
+        : "Fiscalização disponível quando a rodada estiver ativa";
     }
+    if (nextButton) nextButton.hidden = !(isHostDevice && state.roundState === "finished");
 
     const visibleCard = isActor ? state.card : null;
     const cardKey = visibleCard
       ? `card:${visibleCard.id || visibleCard.palavra}`
-      : `viewer:${state.status}:${actorName}:${state.currentRound || 0}:${state.updatedAt || ""}`;
+      : `viewer:${state.roundState}:${actorName}:${state.round || 0}:${state.updatedAt || ""}`;
     if (slot && (forceCard || fiscal.renderedCardKey !== cardKey)) {
       slot.innerHTML = visibleCard
         ? cardMarkup(visibleCard, "fiscal-card")
-        : participantStatusCard(state, identity, isActor, canFlag);
+        : participantStatusCard(state, identity, isActor, isInspector, isSameTeam);
       fiscal.renderedCardKey = cardKey;
     }
   }
 
-  function participantRoleLabel(state, identity, isActor, canFlag) {
+  function participantRoleLabel(state, identity, isActor, isInspector, isSameTeam) {
     if (isActor) return "Sua vez";
-    if (canFlag) return "Fiscalize a rodada";
-    if (identity.name === "spectator") return "Acompanhando";
-    if (state.status === "lobby") return "No lobby";
-    return "Sua equipe acompanha";
+    if (isInspector) return "Fiscalize a rodada";
+    if (identity?.team === "spectator") return "Acompanhando";
+    if (state.roundState === "lobby") return "No lobby";
+    if (isSameTeam) return "Sua equipe acompanha";
+    return "Acompanhando";
   }
 
-  function participantTargetLabel(state, identity, isActor, canFlag) {
-    if (state.status === "lobby") return "aguardando inicio da partida";
-    if (state.status === "pass") return `${state.player || "Jogador"} vai receber a carta`;
+  function participantTargetLabel(state, identity, isActor, isInspector, isSameTeam) {
+    const actorName = getStateParticipant(state, state.currentPlayerId)?.name || state.player || "Jogador";
+    if (state.roundState === "lobby") return "aguardando inicio da partida";
     if (isActor) return "voce ve a carta completa";
-    if (canFlag) return `fiscalizando ${state.player || "jogador"}`;
-    return `vez de ${state.player || "jogador"}`;
+    if (isInspector) return `fiscalizando ${actorName}`;
+    if (isSameTeam) return `torcendo por ${actorName}`;
+    return `vez de ${actorName}`;
   }
 
-  function participantStatusCard(state, identity, isActor, canFlag) {
-    const status = state.status || "lobby";
+  function participantStatusCard(state, identity, isActor, isInspector, isSameTeam) {
+    const status = state.roundState || state.status || "lobby";
     const teamNames = state.teamNames || game.teamNames;
-    const actorTeamName = teamNames[state.team] || state.teamName || "Time";
-    const roundNumber = Number.isFinite(Number(state.currentRound)) ? Number(state.currentRound) + 1 : 1;
+    const actorTeam = state.currentTeamId || state.team || "blue";
+    const actor = getStateParticipant(state, state.currentPlayerId);
+    const actorName = actor?.name || state.player || "Jogador";
+    const actorTeamName = teamNames[actorTeam] || state.teamName || "Time";
+    const roundNumber = Number.isFinite(Number(state.round)) ? Number(state.round) + 1 : 1;
     const totalRounds = state.rounds || game.rounds;
+    if (status === "finished") return roundResultCard(state, identity, isActor, isSameTeam);
+    if (status === "final") return finalResultCard(state);
     const messages = {
-      lobby: ["Aguardando inicio", "O host ainda esta preparando a primeira rodada."],
-      pass: ["Preparem a rodada", `${state.player || "Jogador"} vai dar as pistas para ${actorTeamName}.`],
-      playing: canFlag
+      lobby: ["Aguardando inicio", "A partida ainda esta no lobby."],
+      playing: isInspector
         ? ["Olho nas proibidas", "Se a pessoa falar uma palavra proibida, segure o botao vermelho."]
-        : ["Rodada em andamento", "Acompanhe o tempo e o placar sem ver a carta."],
+        : isSameTeam
+          ? ["Sua equipe joga", `Acompanhe ${actorName}, o tempo e o placar em tempo real.`]
+          : ["Rodada em andamento", "Acompanhe o tempo e o placar sem ver a carta."],
       paused: ["Partida pausada", "A carta fica protegida ate o host continuar."],
-      ended: ["Fim da rodada", "Confira o placar e aguarde a proxima chamada."],
-      final: ["Partida encerrada", finalParticipantMessage(state)],
       "no-cards": ["Sem cartas", "O host precisa trocar o filtro ou iniciar outra partida."],
       closed: ["Partida encerrada", "O host saiu da partida."]
     };
@@ -1507,12 +1955,120 @@
         <span>Rodada ${roundNumber}/${escapeHtml(totalRounds)}</span>
         <h2>${escapeHtml(title)}</h2>
         <p>${escapeHtml(copy)}</p>
-        <div class="participant-turn ${teamMeta[state.team]?.className || ""}">
-          <strong>${teamMeta[state.team]?.dot || "•"} ${escapeHtml(actorTeamName)}</strong>
-          <small>${escapeHtml(state.player || "aguardando jogador")}</small>
+        <div class="participant-turn ${teamMeta[actorTeam]?.className || ""}">
+          <strong>${teamMeta[actorTeam]?.dot || "•"} ${escapeHtml(actorTeamName)}</strong>
+          <small>${escapeHtml(actorName || "aguardando jogador")}</small>
         </div>
       </article>
     `;
+  }
+
+  function getStateParticipant(state, id) {
+    return (state?.participants || []).find((participant) => participant.id === id);
+  }
+
+  function roundResultCard(state, identity, wasActor, isSameTeam) {
+    const result = state.roundResult || {};
+    const teamNames = state.teamNames || game.teamNames;
+    const teamId = result.teamId || state.currentTeamId || "blue";
+    const teamName = teamNames[teamId] || "Time";
+    const actorName = result.playerName || getStateParticipant(state, result.playerId)?.name || state.player || "Jogador";
+    const title = wasActor
+      ? "Seu resumo"
+      : isSameTeam
+        ? "Boa rodada!"
+        : "Resultado atualizado";
+    const copy = wasActor
+      ? `${actorName}, confira sua rodada completa.`
+      : isSameTeam
+        ? `${actorName} fez +${result.points || 0} para ${teamName}.`
+        : `${teamName} marcou +${result.points || 0}.`;
+
+    return `
+      <article class="participant-card finished result-card ${teamMeta[teamId]?.className || ""}">
+        <span>Rodada ${(state.round || 0) + 1}/${escapeHtml(state.rounds || game.rounds)}</span>
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(copy)}</p>
+        <div class="summary-grid mini-result-grid">
+          <div class="stat score-pop"><span>Acertos</span><b>${result.hits || 0}</b></div>
+          <div class="stat score-pop delay-1"><span>Pulos</span><b>${result.skips || 0}</b></div>
+          <div class="stat score-pop delay-2"><span>Proibidas</span><b>${result.forbidden || 0}</b></div>
+        </div>
+        <div class="points-won score-pop">Pontos conquistados <strong>+${result.points || 0}</strong></div>
+        <div class="participant-turn ${teamMeta[teamId]?.className || ""}">
+          <strong>${teamMeta[teamId]?.dot || "•"} ${escapeHtml(teamName)}</strong>
+          <small>Placar: ${escapeHtml(teamNames.blue || "Azul")} ${state.scores?.blue || 0} x ${state.scores?.red || 0} ${escapeHtml(teamNames.red || "Vermelho")}</small>
+        </div>
+      </article>
+    `;
+  }
+
+  function finalResultCard(state) {
+    const winner = state.winner || getWinnerFromScores(state.scores || {});
+    const teamNames = state.teamNames || game.teamNames;
+    const title = winner === "draw" ? "Empate!" : `${teamNames[winner] || "Time"} venceu!`;
+    return `
+      <article class="participant-card final">
+        <span>Fim da partida</span>
+        <h2>${escapeHtml(title)}</h2>
+        <p>${escapeHtml(finalParticipantMessage(state))}</p>
+        <div class="participant-turn">
+          <strong>Placar final</strong>
+          <small>${escapeHtml(teamNames.blue || "Azul")} ${state.scores?.blue || 0} x ${state.scores?.red || 0} ${escapeHtml(teamNames.red || "Vermelho")}</small>
+        </div>
+      </article>
+    `;
+  }
+
+  function applyRoomEventEffects(state, identity, isHostDevice) {
+    const event = state?.lastEvent;
+    if (!event?.id) return;
+    const key = isHostDevice ? "lastRoomEventId" : "lastEventId";
+    const holder = isHostDevice ? game : fiscal;
+    if (holder[key] === event.id) return;
+    holder[key] = event.id;
+
+    if (event.kind === "correct") {
+      showFloatingPoint("+1", event.team);
+      showToast("+1");
+      feedback("correct");
+      burstConfetti(12);
+    }
+    if (event.kind === "skip") {
+      showToast("Pulou");
+      feedback("skip");
+    }
+    if (event.kind === "forbidden") {
+      showToast("NÃO PODE!");
+      feedback("forbidden");
+    }
+    if (event.kind === "finish" || event.kind === "final") {
+      feedback(event.kind === "final" ? "victory" : "timeOverSoft");
+      if ((state.roundResult?.points || 0) >= 3 || event.kind === "final") burstConfetti(40);
+    }
+    if (event.kind === "turn") {
+      const actor = getStateParticipant(state, event.actorId)?.name || state.player || "jogador";
+      showToast(`Vez de ${actor}`);
+      feedback("countdown");
+    }
+  }
+
+  function showFloatingPoint(text, team) {
+    if (!settings.motion) return;
+    const layer = document.createElement("div");
+    layer.className = `floating-point ${teamMeta[team]?.className || ""}`;
+    layer.textContent = text;
+    document.body.appendChild(layer);
+    setTimeout(() => layer.remove(), 900);
+  }
+
+  function updateOnlineTimerDom(state) {
+    const timer = document.querySelector("#fiscal-timer");
+    if (!timer) return;
+    timer.textContent = `⏱ ${fiscalTime(state)}`;
+    const remaining = roomRemainingSeconds(state);
+    timer.classList.toggle("hot", remaining <= 10 && remaining > 0);
+    timer.classList.toggle("last-five", remaining <= 5 && remaining > 0);
   }
 
   function startFiscalTimer() {
@@ -1521,12 +2077,18 @@
       const timer = document.querySelector("#fiscal-timer");
       if (!timer || !fiscal.state) return;
       timer.textContent = `⏱ ${fiscalTime(fiscal.state)}`;
+      const remaining = roomRemainingSeconds(fiscal.state);
+      timer.classList.toggle("hot", remaining <= 10 && remaining > 0);
+      timer.classList.toggle("last-five", remaining <= 5 && remaining > 0);
+      if (remaining <= 5 && remaining > 0 && remaining !== fiscal.lastTimerSecond) feedback("tick");
+      fiscal.lastTimerSecond = remaining;
     }, 250);
   }
 
   function startHold(event) {
     const button = event.target.closest("[data-hold='forbidden']");
-    if (!button || button.disabled || button.hidden || !fiscal.endpoint || !fiscal.state || fiscal.state.status !== "playing") return;
+    const status = fiscal.state?.roundState || fiscal.state?.status;
+    if (!button || button.disabled || button.hidden || !fiscal.endpoint || !fiscal.state || status !== "playing") return;
     button.setPointerCapture?.(event.pointerId);
     fiscal.holdStart = Date.now();
     button.classList.add("holding");
@@ -1538,7 +2100,7 @@
     };
     paint();
     fiscal.holdTimer = setTimeout(() => {
-      fiscal.endpoint.sendForbidden({ by: fiscal.state.fiscalPlayer, at: Date.now() });
+      sendRoomAction("forbidden");
       showToast("🚨 NÃO PODE REGISTRADO");
       feedback("forbidden");
       cancelHold();
@@ -1557,6 +2119,12 @@
   }
 
   function sendFiscalState(status) {
+    if (game.roomState) {
+      game.roomState.roundState = status === "ended" ? "finished" : status;
+      game.roomState.status = status;
+      sendRoomState();
+      return;
+    }
     if (!game.syncRoom) return;
     game.syncStatus = status;
     const remainingMs = game.paused ? game.pauseRemainingMs : Math.max(0, game.endAt - Date.now());
@@ -1586,12 +2154,152 @@
     });
   }
 
+  function sendRoomState() {
+    if (!game.syncRoom || !game.roomState) return;
+    const state = game.roomState;
+    state.hostId = game.syncRoom.id;
+    state.host = game.syncRoom.id;
+    state.room = game.syncRoom.code;
+    state.currentRound = state.round;
+    state.status = state.roundState;
+    state.roundStats = {
+      correct: Number(state.roundHits || 0),
+      skipped: Number(state.roundSkips || 0),
+      forbidden: Number(state.roundForbidden || 0)
+    };
+    state.player = participantDisplayName(state.currentPlayerId, state.player || "jogador");
+    state.fiscalPlayer = participantDisplayName(state.inspectorId, state.fiscalPlayer || "fiscal");
+    state.team = state.currentTeamId || state.team || "blue";
+    state.teamName = state.teams?.[state.team]?.name || game.teamNames[state.team] || "Time";
+    state.teamNames = {
+      blue: state.teams?.blue?.name || game.teamNames.blue,
+      red: state.teams?.red?.name || game.teamNames.red
+    };
+    state.players = {
+      blue: state.teams?.blue?.playerNames || game.players.blue,
+      red: state.teams?.red?.playerNames || game.players.red
+    };
+    state.usedCardIds = [...game.usedCards];
+    state.occupiedPlayers = occupiedPlayersSnapshot();
+    state.currentCard = state.currentCard || state.card || null;
+    state.card = state.roundState === "playing" || state.roundState === "paused" ? state.currentCard : null;
+    state.remainingTime = roomRemainingSeconds(state);
+    state.endTimestamp = state.roundEndsAt;
+    state.startTimestamp = state.roundStartedAt;
+    state.updatedAt = Date.now();
+    game.syncStatus = state.roundState;
+    game.syncRoom.sendState(JSON.parse(JSON.stringify(state)));
+    updateFiscalStatus();
+  }
+
   function finalParticipantMessage(state) {
     if (!state.scores) return "Confira o resultado no celular principal.";
     if (state.winner === "draw") return `Empate em ${state.scores.blue || 0} x ${state.scores.red || 0}.`;
     const teamNames = state.teamNames || game.teamNames;
     const winnerName = teamNames[state.winner] || "Um time";
     return `${winnerName} venceu por ${state.scores[state.winner] || 0} pontos.`;
+  }
+
+  function roomRemainingSeconds(state) {
+    if (!state || state.roundState !== "playing") return Number(state?.remainingTime || 0);
+    return Math.max(0, Math.ceil((Number(state.roundEndsAt || state.endTimestamp || 0) - Date.now()) / 1000));
+  }
+
+  function startRoomTimer() {
+    clearInterval(game.roomTimerId);
+    game.roomTimerId = setInterval(() => {
+      if (!game.roomState || game.roomState.roundState !== "playing") {
+        clearInterval(game.roomTimerId);
+        game.roomTimerId = null;
+        return;
+      }
+      const remaining = roomRemainingSeconds(game.roomState);
+      game.roomState.remainingTime = remaining;
+      updateOnlineTimerDom(game.roomState);
+      const changedSecond = remaining !== game.lastTimerSecond;
+      if (remaining <= 5 && remaining > 0 && changedSecond) feedback("tick");
+      game.lastTimerSecond = remaining;
+      if (remaining <= 0) finishOnlineRound(true);
+      else if (changedSecond && (remaining % 5 === 0 || remaining <= 10)) sendRoomState();
+    }, 250);
+  }
+
+  function finishOnlineRound(playEffects) {
+    if (!game.roomState || game.roomState.roundState !== "playing") return;
+    clearInterval(game.roomTimerId);
+    game.roomTimerId = null;
+    const state = game.roomState;
+    state.roundState = "finished";
+    state.status = state.roundState;
+    state.matchFinished = state.round + 1 >= state.rounds;
+    state.remainingTime = 0;
+    state.card = null;
+    state.currentCard = null;
+    state.roundResult = {
+      playerId: state.currentPlayerId,
+      playerName: participantDisplayName(state.currentPlayerId),
+      teamId: state.currentTeamId,
+      inspectorId: state.inspectorId,
+      hits: state.roundHits,
+      skips: state.roundSkips,
+      forbidden: state.roundForbidden,
+      points: state.roundHits,
+      scores: { ...state.scores },
+      finishedAt: Date.now()
+    };
+    state.bestRound = Math.max(Number(state.bestRound || 0), state.roundHits);
+    state.winner = state.matchFinished ? getWinnerFromScores(state.scores) : null;
+    state.lastEvent = {
+      id: `finish-${state.round}-${Date.now()}`,
+      kind: state.matchFinished ? "final" : "finish",
+      team: state.currentTeamId,
+      actorId: state.currentPlayerId,
+      at: Date.now()
+    };
+    syncLocalFromRoomState();
+    sendRoomState();
+    renderHostOnlineState(true);
+    if (playEffects) {
+      showToast("TEMPO!");
+      feedback("timeOver");
+    }
+    if (state.roundResult.points >= 3) burstConfetti(36);
+    scheduleOnlineAdvance();
+  }
+
+  function scheduleOnlineAdvance() {
+    clearTimeout(game.roomAdvanceId);
+    if (!game.roomState || game.roomState.roundState !== "finished") return;
+    game.roomAdvanceId = setTimeout(() => advanceOnlineRound(), motionDelay(5200));
+  }
+
+  function advanceOnlineRound() {
+    if (!game.roomState) return;
+    clearTimeout(game.roomAdvanceId);
+    if (game.roomState.roundState === "final") {
+      renderHostOnlineState(true);
+      return;
+    }
+    if (game.roomState.matchFinished) {
+      game.roomState.roundState = "final";
+      game.roomState.status = "final";
+      game.roomState.lastEvent = {
+        id: `final-${Date.now()}`,
+        kind: "final",
+        at: Date.now()
+      };
+      sendRoomState();
+      renderHostOnlineState(true);
+      return;
+    }
+    game.roomState.round += 1;
+    game.roomState.currentRound = game.roomState.round;
+    beginOnlineRound();
+  }
+
+  function getWinnerFromScores(scores) {
+    if ((scores?.blue || 0) === (scores?.red || 0)) return "draw";
+    return (scores?.blue || 0) > (scores?.red || 0) ? "blue" : "red";
   }
 
   function currentTeam() {
@@ -1828,15 +2536,21 @@
   function clearTimers() {
     if (game.frameId) cancelAnimationFrame(game.frameId);
     if (game.countdownId) clearInterval(game.countdownId);
+    clearInterval(game.roomTimerId);
+    clearTimeout(game.roomAdvanceId);
     clearInterval(fiscal.timerId);
     game.frameId = null;
     game.countdownId = null;
+    game.roomTimerId = null;
+    game.roomAdvanceId = null;
   }
 
   function disconnectHostRoom() {
     game.syncRoom?.disconnect();
     game.syncRoom = null;
     game.fiscalConnected = false;
+    game.roomState = null;
+    game.hostIdentity = null;
   }
 
   function resetFiscalView() {
@@ -1849,6 +2563,8 @@
     fiscal.renderedCardKey = null;
     fiscal.timerId = null;
     fiscal.requestTimer = null;
+    fiscal.lastEventId = null;
+    fiscal.lastTimerSecond = null;
   }
 
   function setRoundButtonsDisabled(disabled) {
@@ -1898,9 +2614,10 @@
   }
 
   function fiscalTime(state) {
-    if (state.status === "paused") return formatTime(Math.ceil((state.pausedRemainingMs || 0) / 1000));
-    if (state.status !== "playing") return "--:--";
-    return formatTime(Math.max(0, Math.ceil((state.endTimestamp - Date.now()) / 1000)));
+    const status = state.roundState || state.status;
+    if (status === "paused") return formatTime(Math.ceil((state.pausedRemainingMs || 0) / 1000));
+    if (status !== "playing") return "--:--";
+    return formatTime(roomRemainingSeconds(state));
   }
 
   function applyMotionPreference() {

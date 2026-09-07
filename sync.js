@@ -31,6 +31,7 @@
     return {
       state: new Set(),
       forbidden: new Set(),
+      gameEvent: new Set(),
       connection: new Set(),
       stateRequest: new Set(),
       identity: new Set(),
@@ -96,6 +97,7 @@
 
       if (type === "state") emit(listeners, "state", payload.state);
       if (type === "forbidden") emit(listeners, "forbidden", payload.payload || {});
+      if (type === "game-event") emit(listeners, "gameEvent", payload.payload || {});
       if (type === "identity") emit(listeners, "identity", payload);
       if (type === "disconnect") {
         emit(listeners, "peerDisconnect", payload);
@@ -109,6 +111,7 @@
       .on("broadcast", { event: "request-state" }, ({ payload }) => receive("request-state", payload))
       .on("broadcast", { event: "state" }, ({ payload }) => receive("state", payload))
       .on("broadcast", { event: "forbidden" }, ({ payload }) => receive("forbidden", payload))
+      .on("broadcast", { event: "game-event" }, ({ payload }) => receive("game-event", payload))
       .on("broadcast", { event: "identity" }, ({ payload }) => receive("identity", payload))
       .on("broadcast", { event: "disconnect" }, ({ payload }) => receive("disconnect", payload))
       .on("presence", { event: "sync" }, () => {
@@ -149,6 +152,9 @@
       sendForbidden(payload) {
         send("forbidden", { payload });
       },
+      sendGameEvent(payload) {
+        send("game-event", { payload });
+      },
       sendIdentity(identity) {
         send("identity", { identity });
       },
@@ -162,6 +168,10 @@
       onForbidden(listener) {
         listeners.forbidden.add(listener);
         return () => listeners.forbidden.delete(listener);
+      },
+      onGameEvent(listener) {
+        listeners.gameEvent.add(listener);
+        return () => listeners.gameEvent.delete(listener);
       },
       onIdentityChange(listener) {
         listeners.identity.add(listener);
@@ -227,6 +237,7 @@
 
       if (message.type === "state") emit(listeners, "state", message.state);
       if (message.type === "forbidden") emit(listeners, "forbidden", message.payload || {});
+      if (message.type === "game-event") emit(listeners, "gameEvent", message.payload || {});
       if (message.type === "identity") emit(listeners, "identity", message);
       if (message.type === "disconnect") {
         emit(listeners, "peerDisconnect", message);
@@ -269,6 +280,9 @@
       sendForbidden(payload) {
         post({ type: "forbidden", payload });
       },
+      sendGameEvent(payload) {
+        post({ type: "game-event", payload });
+      },
       sendIdentity(identity) {
         post({ type: "identity", identity });
       },
@@ -282,6 +296,10 @@
       onForbidden(listener) {
         listeners.forbidden.add(listener);
         return () => listeners.forbidden.delete(listener);
+      },
+      onGameEvent(listener) {
+        listeners.gameEvent.add(listener);
+        return () => listeners.gameEvent.delete(listener);
       },
       onIdentityChange(listener) {
         listeners.identity.add(listener);

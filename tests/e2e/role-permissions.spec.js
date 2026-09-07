@@ -1,19 +1,18 @@
 const { test, expect } = require("@playwright/test");
-const { createOnlineLobby, joinFirstRoundPlayers, openApp, startFirstRound } = require("./helpers");
+const { createOnlineLobby, joinFirstRoundPlayers, joinOnlineMatch, openApp, startFirstRound } = require("./helpers");
 
 test.describe("permissoes por papel", () => {
   test("jogador da vez ve a carta completa", async ({ browser }) => {
     const context = await browser.newContext();
     const host = await context.newPage();
     const code = await createOnlineLobby(host);
-    const { cali } = await joinFirstRoundPlayers(context, code);
+    await joinFirstRoundPlayers(context, code);
     await startFirstRound(host);
-    await expect(cali.getByText(/Sua vez/i)).toBeVisible({ timeout: 6000 });
-    await expect(cali.locator(".game-card")).toBeVisible();
+    await expect(host.getByText(/Sua vez/i)).toBeVisible({ timeout: 6000 });
+    await expect(host.locator(".game-card")).toBeVisible();
     await expect(host.getByRole("button", { name: /Pular/i })).toBeVisible();
     await expect(host.getByRole("button", { name: /Acertou/i })).toBeVisible();
     await expect(host.getByRole("button", { name: /Não pode/i })).toHaveCount(0);
-    await expect(host.locator(".game-card")).toHaveCount(0);
     await context.close();
   });
 
@@ -26,6 +25,32 @@ test.describe("permissoes por papel", () => {
     await expect(paulo.getByText(/Fiscalize a rodada/i)).toBeVisible({ timeout: 6000 });
     await expect(paulo.locator(".game-card")).toHaveCount(0);
     await expect(paulo.getByRole("button", { name: /Segure se ele falar/i })).toBeVisible();
+    await context.close();
+  });
+
+  test("host nao controla quando outro aparelho e o jogador da vez", async ({ browser }) => {
+    const context = await browser.newContext();
+    const host = await context.newPage();
+    const code = await createOnlineLobby(host, "Paulo");
+    const cali = await joinOnlineMatch(context, code, "Cali");
+    await host.getByRole("button", { name: /Começar partida/i }).click();
+    await expect(cali.getByText(/Sua vez/i)).toBeVisible({ timeout: 6000 });
+    await expect(cali.locator(".game-card")).toBeVisible();
+    await expect(cali.getByRole("button", { name: /Acertou/i })).toBeVisible();
+    await expect(host.getByText(/Fiscalize a rodada/i)).toBeVisible();
+    await expect(host.getByRole("button", { name: /Acertou/i })).toHaveCount(0);
+    await expect(host.getByRole("button", { name: /Pular/i })).toHaveCount(0);
+    await context.close();
+  });
+
+  test("acerto do jogador atual sincroniza placar no fiscal", async ({ browser }) => {
+    const context = await browser.newContext();
+    const host = await context.newPage();
+    const code = await createOnlineLobby(host);
+    const { paulo } = await joinFirstRoundPlayers(context, code);
+    await startFirstRound(host);
+    await host.getByRole("button", { name: /Acertou/i }).click();
+    await expect(paulo.locator("#participant-score")).toContainText("1", { timeout: 4000 });
     await context.close();
   });
 
@@ -53,7 +78,7 @@ test.describe("permissoes por papel", () => {
     await startFirstRound(host);
     await paulo.getByRole("button", { name: /Segure se ele falar/i }).dispatchEvent("pointerdown", { pointerId: 1 });
     await paulo.waitForTimeout(650);
-    await expect(host.getByText(/Fiscal marcou/i)).toBeVisible({ timeout: 4000 });
+    await expect(host.locator("#toast")).toContainText(/NÃO PODE/i, { timeout: 4000 });
     await context.close();
   });
 });

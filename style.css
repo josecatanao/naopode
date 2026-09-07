@@ -1493,6 +1493,39 @@ select:focus {
   color: var(--white);
 }
 
+.online-participant-list {
+  display: grid;
+  gap: 7px;
+  border-radius: 16px;
+  padding: 10px;
+  background: rgba(1, 24, 89, 0.22);
+  text-align: left;
+}
+
+.online-participant-list strong,
+.online-participant-list small {
+  color: rgba(255, 255, 255, 0.88);
+  font-size: 0.78rem;
+  font-weight: 950;
+}
+
+.online-participant-list span {
+  border-radius: 999px;
+  padding: 7px 9px;
+  background: rgba(255, 255, 255, 0.13);
+  color: var(--white);
+  font-size: 0.76rem;
+  font-weight: 950;
+}
+
+.online-participant-list span.blue {
+  box-shadow: inset 4px 0 0 #3cb4ff;
+}
+
+.online-participant-list span.red {
+  box-shadow: inset 4px 0 0 #ff5268;
+}
+
 .online-steps {
   display: grid;
   gap: 7px;
@@ -2433,6 +2466,17 @@ select:focus {
 
 .participant-actions {
   display: grid;
+  gap: 9px;
+}
+
+.participant-round-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.participant-round-actions[hidden] {
+  display: none;
 }
 
 .hold-button {
@@ -2479,6 +2523,34 @@ select:focus {
 .hold-button strong {
   position: relative;
   z-index: 1;
+}
+
+.score-bump {
+  animation: scorePop 320ms ease-out both, scoreGlow 720ms ease-out;
+}
+
+.result-card {
+  animation: screenInForward 260ms ease-out both;
+}
+
+.mini-result-grid {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.floating-point {
+  position: fixed;
+  z-index: 24;
+  top: 24%;
+  left: 50%;
+  transform: translateX(-50%);
+  color: var(--yellow);
+  font-family: "Fredoka", "Nunito", system-ui, sans-serif;
+  font-size: clamp(3.2rem, 18vw, 5.4rem);
+  font-weight: 1000;
+  line-height: 1;
+  text-shadow: 0 8px 0 rgba(8, 31, 77, 0.24), 0 0 26px rgba(255, 201, 40, 0.38);
+  pointer-events: none;
+  animation: floatPoint 850ms ease-out forwards;
 }
 
 .toast {
@@ -3333,6 +3405,18 @@ body.no-motion *::after {
 @keyframes scorePop {
   from { opacity: 0; transform: translateY(10px) scale(0.96); }
   to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+@keyframes scoreGlow {
+  0% { box-shadow: inset 4px 0 0 #ffc928, 0 0 0 rgba(255, 201, 40, 0); }
+  45% { box-shadow: inset 4px 0 0 #ffc928, 0 0 22px rgba(255, 201, 40, 0.42); }
+  100% { box-shadow: inset 4px 0 0 currentColor, 0 0 0 rgba(255, 201, 40, 0); }
+}
+
+@keyframes floatPoint {
+  0% { opacity: 0; transform: translate(-50%, 28px) scale(0.74) rotate(-4deg); }
+  22% { opacity: 1; transform: translate(-50%, 0) scale(1.08) rotate(2deg); }
+  100% { opacity: 0; transform: translate(-50%, -68px) scale(1) rotate(0); }
 }
 
 @keyframes winnerPop {
