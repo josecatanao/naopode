@@ -38,6 +38,8 @@ test.describe("permissoes por papel", () => {
     await expect(cali.locator(".game-card")).toBeVisible();
     await expect(cali.getByRole("button", { name: /Acertou/i })).toBeVisible();
     await expect(host.getByText(/Fiscalize a rodada/i)).toBeVisible();
+    await expect(host.locator(".play-screen")).toHaveCount(0);
+    await expect(host.locator(".game-card")).toHaveCount(0);
     await expect(host.getByRole("button", { name: /Acertou/i })).toHaveCount(0);
     await expect(host.getByRole("button", { name: /Pular/i })).toHaveCount(0);
     await context.close();
