@@ -17,7 +17,8 @@
   --shadow: 0 18px 38px rgba(8, 31, 77, 0.22);
   --button-shadow: 0 8px 0 rgba(8, 31, 77, 0.2), var(--shadow);
   --radius: 20px;
-  --scroll-end-space: max(34px, calc(env(safe-area-inset-bottom) + 28px));
+  --content-end-space: max(22px, calc(env(safe-area-inset-bottom) + 14px));
+  --scroll-end-space: max(64px, calc(env(safe-area-inset-bottom) + 54px));
 }
 
 * {
@@ -31,7 +32,6 @@ html {
 }
 
 body {
-  height: 100%;
   min-height: 100dvh;
   margin: 0;
   color: var(--ink);
@@ -119,6 +119,7 @@ h3 {
   overflow-x: hidden;
   overflow-y: auto;
   padding: max(18px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom));
+  scroll-padding-bottom: var(--scroll-end-space);
   -webkit-overflow-scrolling: touch;
 }
 
@@ -127,7 +128,6 @@ h3 {
   .app-shell,
   #app,
   .screen {
-    height: 100svh;
     min-height: 100svh;
   }
 
@@ -1056,10 +1056,18 @@ h3 {
   height: auto;
   min-height: calc(100dvh - 26px - env(safe-area-inset-top) - env(safe-area-inset-bottom));
   gap: clamp(10px, 1.55dvh, 16px);
-  padding-bottom: var(--scroll-end-space);
+  padding-bottom: var(--content-end-space);
 }
 
 .config-screen .stack {
+  padding-bottom: var(--content-end-space);
+}
+
+.premium-stack:has(> .button:last-child),
+.config-stack:has(> .button:last-child),
+.fiscal-screen .stack:has(> .button:last-child),
+.premium-stack:has(> .bottom-actions:last-child),
+.fiscal-screen .stack:has(> .bottom-actions:last-child) {
   padding-bottom: var(--scroll-end-space);
 }
 
@@ -2227,11 +2235,15 @@ select:focus {
 .premium-stack > .button:last-child,
 .config-stack > .button:last-child,
 .fiscal-screen .stack > .button:last-child {
-  min-height: clamp(70px, 9.5dvh, 82px);
-  margin-top: clamp(4px, 1.4dvh, 12px);
+  min-height: clamp(62px, 17vw, 72px);
+  margin-top: clamp(6px, 2vw, 12px);
   margin-bottom: max(6px, env(safe-area-inset-bottom));
   border-radius: 24px;
   font-size: clamp(0.95rem, 4.2vw, 1.12rem);
+  box-shadow:
+    0 5px 0 #e87318,
+    0 10px 0 rgba(3, 22, 91, 0.56),
+    0 16px 22px rgba(0, 9, 58, 0.34);
 }
 
 .premium-flow-screen .button.white,
@@ -3890,6 +3902,13 @@ body.no-motion *::after {
 
   .stack {
     max-height: 940px;
+  }
+}
+
+@media (max-width: 640px) and (pointer: coarse) {
+  :root {
+    --content-end-space: max(28px, calc(env(safe-area-inset-bottom) + 18px));
+    --scroll-end-space: max(86px, calc(env(safe-area-inset-bottom) + 78px));
   }
 }
 
